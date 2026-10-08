@@ -1,0 +1,1209 @@
+// Browser harness only. The installed extension does not start this server.
+import { createServer } from "node:http";
+import { readFile, mkdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import assert from "node:assert/strict";
+import { chromium } from "playwright";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const svg = (color, subtitle) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="480"><rect width="720" height="480" fill="#f6f8fb"/><rect width="720" height="68" fill="white"/><text x="32" y="43" font-family="Arial" font-weight="bold" font-size="22" fill="#192636">Canvas Studio</text><text x="564" y="41" font-family="Arial" font-size="13" fill="#758295">Your workspace</text><text x="32" y="125" font-family="Arial" font-size="27" font-weight="bold" fill="#192636">Good morning, Alex.</text><text x="32" y="153" font-family="Arial" font-size="14" fill="#758295">${subtitle}</text><rect x="32" y="185" width="310" height="150" rx="12" fill="${color}"/><text x="54" y="220" font-family="Arial" font-size="13" fill="white">PROJECTS THIS MONTH</text><text x="54" y="280" font-family="Arial" font-size="44" font-weight="bold" fill="white">24</text><rect x="362" y="185" width="326" height="150" rx="12" fill="white"/><text x="384" y="220" font-family="Arial" font-size="13" fill="#758295">TEAM MEMBERS</text><text x="384" y="280" font-family="Arial" font-size="44" font-weight="bold" fill="#192636">08</text><rect x="32" y="355" width="656" height="84" rx="12" fill="white"/><circle cx="72" cy="397" r="18" fill="#e4ecf5"/><text x="107" y="394" font-family="Arial" font-size="15" fill="#192636">Brand assets</text><text x="107" y="416" font-family="Arial" font-size="12" fill="#758295">Updated just now · 12 files</text></svg>`;
+const payload = (value) => ({
+  data: `data:image/svg+xml;base64,${Buffer.from(value).toString("base64")}`,
+});
+const old = payload(svg("#6d5efc", "A little progress, every day."));
+const fresh = payload(
+  svg("#13a887", "Everything you need to make something great."),
+);
+const sized = (color, width, height) =>
+  payload(
+    svg(color, "A different capture resolution.").replace(
+      'width="720" height="480"',
+      `width="${width}" height="${height}" viewBox="0 0 720 ${(height * 720) / width}"`,
+    ),
+  );
+const smallCapture = sized("#6d5efc", 1440, 875);
+const largeCapture = sized("#13a887", 3456, 2156);
+const items = [
+  {
+    id: "resized",
+    path: "assets/screens/resized.svg",
+    scope: "working",
+    status: "Modified",
+  },
+  {
+    id: "resized-reverse",
+    path: "assets/screens/resized-reverse.svg",
+    scope: "working",
+    status: "Modified",
+  },
+  {
+    id: "main",
+    path: "assets/screens/workspace.svg",
+    scope: "working",
+    status: "Modified",
+  },
+  {
+    id: "staged",
+    path: "assets/screens/workspace.svg",
+    scope: "staged",
+    status: "Modified",
+  },
+  {
+    id: "new",
+    path: "assets/icons/new.svg",
+    scope: "working",
+    status: "Added",
+  },
+  {
+    id: "deleted",
+    path: "assets/legacy/banner.svg",
+    scope: "working",
+    status: "Deleted",
+  },
+  {
+    id: "error",
+    path: "assets/broken.svg",
+    scope: "working",
+    status: "Modified",
+  },
+  {
+    id: "unsafe",
+    path: "assets/<img onerror=alert(1)>.svg",
+    scope: "working",
+    status: "Modified",
+  },
+  {
+    id: "new-staged",
+    path: "assets/icons/new-staged.svg",
+    scope: "staged",
+    status: "Added",
+  },
+  {
+    id: "conflict-added",
+    path: "assets/icons/conflict.svg",
+    scope: "conflict",
+    status: "Conflict",
+    beforeLabel: "Not present",
+  },
+  {
+    id: "failure",
+    path: "test/editor/failures/iPhone5S[dark]_testImage.png",
+    scope: "failure",
+    status: "Failure",
+    beforeLabel: "Not present",
+    afterLabel: "Actual · testImage",
+  },
+].map((item) => ({
+  repository: "design-system",
+  root: "/workspace/design-system",
+  beforeLabel:
+    item.status === "Added"
+      ? "Not present"
+      : item.scope === "staged"
+        ? "HEAD"
+        : "Index",
+  afterLabel:
+    item.status === "Deleted"
+      ? "Not present"
+      : item.scope === "staged"
+        ? "Index"
+        : "Working tree",
+  ...item,
+}));
+const images = {
+  resized: [smallCapture, largeCapture],
+  "resized-reverse": [largeCapture, smallCapture],
+  main: [old, fresh],
+  staged: [old, old],
+  new: [null, fresh],
+  deleted: [old, null],
+  error: [{ error: "Index: unavailable" }, fresh],
+  unsafe: [old, fresh],
+  "new-staged": [null, fresh],
+  "conflict-added": [null, fresh],
+  failure: [null, fresh],
+};
+const server = createServer(async (req, res) => {
+  try {
+    const name = req.url === "/" ? "viewer.html" : req.url.slice(1);
+    if (
+      !["viewer.html", "viewer.css", "viewer.mjs", "diff.mjs"].includes(name)
+    ) {
+      res.writeHead(404).end();
+      return;
+    }
+    let body = await readFile(path.join(root, "media", name), "utf8");
+    if (name.endsWith(".html"))
+      body = body
+        .replaceAll("__CSP__", "'self'")
+        .replaceAll("__NONCE__", "test-nonce")
+        .replaceAll("__STYLE__", "/viewer.css")
+        .replaceAll("__SCRIPT__", "/viewer.mjs");
+    res.setHeader(
+      "Content-Type",
+      name.endsWith(".html")
+        ? "text/html"
+        : name.endsWith(".css")
+          ? "text/css"
+          : "text/javascript",
+    );
+    res.end(body);
+  } catch {
+    res.writeHead(500).end();
+  }
+});
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+let browser;
+try {
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 960 },
+  });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.addInitScript(
+    ({ items, images }) => {
+      // Settings saved by 0.1.1 must not retain the removed webview filters.
+      let state = JSON.parse(
+        sessionStorage.getItem("viewer-state") ?? "null",
+      ) ?? {
+        activeId: "main",
+        mode: "side",
+        scope: "staged",
+        search: "does-not-exist",
+        repository: "/old-workspace",
+      };
+      window.__state = () => state;
+      window.__messages = [];
+      window.__activity = {
+        decodes: 0,
+        workers: 0,
+        draws: 0,
+        paneChanges: 0,
+        paneHides: 0,
+      };
+      const decode = HTMLImageElement.prototype.decode;
+      HTMLImageElement.prototype.decode = function () {
+        window.__activity.decodes++;
+        return decode.call(this);
+      };
+      const clearRect = CanvasRenderingContext2D.prototype.clearRect;
+      CanvasRenderingContext2D.prototype.clearRect = function (...args) {
+        if (this.canvas.id) window.__activity.draws++;
+        return clearRect.apply(this, args);
+      };
+      const NativeWorker = window.Worker;
+      window.Worker = class extends NativeWorker {
+        constructor(...args) {
+          super(...args);
+          window.__activity.workers++;
+        }
+      };
+      document.addEventListener("DOMContentLoaded", () => {
+        new MutationObserver((records) => {
+          window.__activity.paneChanges += records.length;
+          window.__activity.paneHides += records.filter(
+            (record) => record.oldValue === null,
+          ).length;
+        }).observe(document.querySelector("#panes"), {
+          attributes: true,
+          attributeFilter: ["hidden"],
+          attributeOldValue: true,
+        });
+      });
+      const revisions = Object.fromEntries(items.map((item) => [item.id, 1]));
+      window.__updateImages = (id, pair) => {
+        images[id] = pair;
+        revisions[id]++;
+      };
+      window.__getImages = (id) => images[id];
+      window.__pending = [];
+      window.__holdResponses = false;
+      window.__releaseResponses = () => {
+        window.__holdResponses = false;
+        window.__pending.splice(0).forEach(window.__emit);
+      };
+      window.__responses = 0;
+      window.__emit = (data) => window.postMessage(data, "*");
+      window.__snapshot = (selected, changes = items, filter = "all") =>
+        window.__emit({ type: "snapshot", changes, selected, filter, failureCount: changes.filter(item => item.scope === "failure").length });
+      window.__failureSnapshot = () => window.__snapshot("failure", items.filter(item => item.id === "failure"), "failures");
+      window.__selectImage = (id) => window.__snapshot(id);
+      window.__revisionSnapshot = () =>
+        new Promise((resolve) => {
+          const listener = (event) => {
+            if (!event.data.revisionProbe) return;
+            window.removeEventListener("message", listener);
+            resolve();
+          };
+          window.addEventListener("message", listener);
+          window.__emit({
+            type: "snapshot",
+            revisionProbe: true,
+            changes: items.map((item) => ({
+              ...item,
+              revision: `${item.id}:${revisions[item.id]}`,
+            })),
+          });
+        });
+      window.acquireVsCodeApi = () => ({
+        getState: () => state,
+        setState: (value) => {
+          state = value;
+          sessionStorage.setItem("viewer-state", JSON.stringify(value));
+        },
+        postMessage: (message) => {
+          window.__messages.push(message);
+          if (message.type === "ready" || message.type === "refresh")
+            window.__snapshot();
+          if (message.type === "load") {
+            const [before, after] = images[message.id];
+            const revision = `${message.id}:${revisions[message.id]}`;
+            const response = {
+              type: "images",
+              id: message.id,
+              request: message.request,
+              revision,
+              ...(message.revision === revision
+                ? { unchanged: true }
+                : { before, after }),
+            };
+            if (window.__holdResponses) window.__pending.push(response);
+            else window.__emit(response);
+          }
+        },
+      });
+      window.addEventListener("message", (event) => {
+        if (event.data.type === "images") window.__responses++;
+      });
+    },
+    { items, images },
+  );
+  await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  const compared = () =>
+    page.waitForFunction(() =>
+      document.querySelector("#metrics").textContent.includes("pixels changed"),
+    );
+  await compared();
+  assert.equal(
+    await page
+      .locator("aside, #files, #search, #repository, [data-scope]")
+      .count(),
+    0,
+  );
+  assert.equal(
+    await page
+      .locator(".review")
+      .evaluate((element) => element.getBoundingClientRect().width),
+    1440,
+  );
+  assert.equal(await page.evaluate(() => window.__state().search), undefined);
+  await page.click("#show-sidebar");
+  assert.equal(
+    await page.evaluate(() => window.__messages.at(-1).type),
+    "showSidebar",
+  );
+  const selectFromSidebar = async (id, valid = true) => {
+    await page.evaluate((id) => window.__selectImage(id), id);
+    await page.waitForFunction(
+      (id) =>
+        window.__messages.filter((message) => message.type === "load").at(-1)
+          ?.id === id,
+      id,
+    );
+    if (valid) {
+      if (items.find((item) => item.id === id)?.status === "Added")
+        await page.waitForFunction(() =>
+          document.querySelector("#metrics").textContent.includes("New image"),
+        );
+      else await compared();
+    }
+  };
+  const pixel = (selector) =>
+    page
+      .locator(selector)
+      .evaluate((canvas) => [
+        ...canvas.getContext("2d").getImageData(40, 200, 1, 1).data,
+      ]);
+  assert.deepEqual(await pixel("#left-canvas"), [109, 94, 252, 255]);
+  assert.deepEqual(await pixel("#right-canvas"), [19, 168, 135, 255]);
+  const pixelActivity = await page.evaluate(() => ({ ...window.__activity }));
+  const pixelResponses = await page.evaluate(() => {
+    const count = window.__responses;
+    for (let i = 0; i < 3; i++) window.__snapshot();
+    return count;
+  });
+  await page.waitForFunction(
+    (count) => window.__responses === count + 3,
+    pixelResponses,
+  );
+  assert.deepEqual(await page.evaluate(() => window.__activity), pixelActivity);
+  const loadsBeforeMetadata = await page.evaluate(
+    () => window.__messages.filter((message) => message.type === "load").length,
+  );
+  for (let i = 0; i < 3; i++)
+    await page.evaluate(() => window.__revisionSnapshot());
+  assert.equal(
+    await page.evaluate(
+      () =>
+        window.__messages.filter((message) => message.type === "load").length,
+    ),
+    loadsBeforeMetadata,
+    "Snapshots with the same image revision must not request another load",
+  );
+  assert.deepEqual(await page.evaluate(() => window.__activity), pixelActivity);
+
+  // Slider updates its readout immediately, coalesces drag events, and never reloads images.
+  const threshold = page.getByRole("slider", {
+    name: "Color difference threshold",
+    exact: true,
+  });
+  assert.equal(await threshold.inputValue(), "0");
+  assert.match(await threshold.getAttribute("aria-valuetext"), /Exact/);
+  const thresholdActivity = await page.evaluate(() => {
+    const previous = {
+      ...window.__activity,
+      loads: window.__messages.filter((message) => message.type === "load")
+        .length,
+    };
+    const input = document.querySelector("#tolerance");
+    for (let value = 1; value <= 255; value++) {
+      input.value = String(value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    return {
+      previous,
+      immediateWorkers: window.__activity.workers,
+      readout: document.querySelector("#tolerance-value").value,
+    };
+  });
+  assert.equal(thresholdActivity.readout, "255");
+  assert.equal(
+    thresholdActivity.immediateWorkers,
+    thresholdActivity.previous.workers,
+  );
+  await compared();
+  assert.match(
+    await page.locator("#metrics").textContent(),
+    /· 0 \/ .*pixels changed \(0.00%\).*color threshold 255/,
+  );
+  assert.equal(
+    await page.evaluate(() => window.__activity.workers),
+    thresholdActivity.previous.workers + 1,
+  );
+  assert.equal(
+    await page.evaluate(() => window.__activity.decodes),
+    thresholdActivity.previous.decodes,
+  );
+  assert.equal(
+    await page.evaluate(
+      () =>
+        window.__messages.filter((message) => message.type === "load").length,
+    ),
+    thresholdActivity.previous.loads,
+  );
+  await threshold.press("Home");
+  await compared();
+  assert.equal(await threshold.inputValue(), "0");
+  await threshold.press("ArrowRight");
+  await compared();
+  assert.equal(await threshold.inputValue(), "1");
+  const track = await threshold.boundingBox();
+  await threshold.click({
+    position: { x: track.width * 0.4, y: track.height / 2 },
+  });
+  await compared();
+  const rememberedThreshold = await threshold.inputValue();
+  assert.ok(
+    Number(rememberedThreshold) > 1 && Number(rememberedThreshold) < 255,
+  );
+  assert.equal(
+    await page.evaluate(() => window.__state().tolerance),
+    rememberedThreshold,
+  );
+  await page.reload();
+  await compared();
+  assert.equal(await threshold.inputValue(), rememberedThreshold);
+  assert.equal(
+    await page.locator("#tolerance-value").textContent(),
+    rememberedThreshold,
+  );
+  await threshold.press("Home");
+  await compared();
+  assert.equal(await threshold.inputValue(), "0");
+
+  for (const mode of [
+    "swipe",
+    "overlay",
+    "diff",
+    "blink",
+    "before",
+    "after",
+    "side",
+  ]) {
+    await page.selectOption("#mode", mode);
+    assert.equal(
+      await page.locator("#right-pane").isVisible(),
+      mode === "side",
+    );
+    assert.equal(
+      await page.locator("#logical-scaling-control").isVisible(),
+      mode === "side",
+    );
+    if (mode === "diff")
+      assert.deepEqual(await pixel("#left-canvas"), [255, 82, 158, 255]);
+    if (mode === "before")
+      assert.deepEqual(await pixel("#left-canvas"), [109, 94, 252, 255]);
+    if (mode === "after")
+      assert.deepEqual(await pixel("#left-canvas"), [19, 168, 135, 255]);
+  }
+  await page.selectOption("#mode", "swipe");
+  await page.locator("#mix").fill("0");
+  assert.deepEqual(await pixel("#left-canvas"), [19, 168, 135, 255]);
+  await page.locator("#mix").fill("100");
+  assert.deepEqual(await pixel("#left-canvas"), [109, 94, 252, 255]);
+  await page.selectOption("#mode", "overlay");
+  await page.locator("#mix").fill("0");
+  assert.deepEqual(await pixel("#left-canvas"), [109, 94, 252, 255]);
+  await page.locator("#mix").fill("100");
+  assert.deepEqual(await pixel("#left-canvas"), [19, 168, 135, 255]);
+  await page.selectOption("#mode", "side");
+  await page.check("#highlight");
+  assert.notDeepEqual(await pixel("#right-canvas"), [19, 168, 135, 255]);
+  await page.click("#changes");
+  assert.notEqual(
+    (await page.locator("#zoom-percent").inputValue()) + "%",
+    "100%",
+  );
+  await page.click("#actual");
+  assert.equal(
+    (await page.locator("#zoom-percent").inputValue()) + "%",
+    "100%",
+  );
+  // Fit changes follows each comparison's bounds, not the previous percentage.
+  const originalZoomPairs = await page.evaluate(() =>
+    ["main", "unsafe"].map(id => [id, window.__getImages(id)]),
+  );
+  const areaA = { x: 200, y: 180, width: 100, height: 80 };
+  const areaB = { x: 1000, y: 760, width: 400, height: 240 };
+  const areaC = { x: 700, y: 500, width: 240, height: 180 };
+  const changedImage = (area) => payload(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200"><rect width="1600" height="1200" fill="white"/>${area ? `<rect x="${area.x}" y="${area.y}" width="${area.width}" height="${area.height}" fill="black"/>` : ""}</svg>`,
+  );
+  const baseImage = changedImage();
+  await page.evaluate(({base, first, second}) => {
+    window.__updateImages("main", [base, first]);
+    window.__updateImages("unsafe", [base, second]);
+  }, {base:baseImage, first:changedImage(areaA), second:changedImage(areaB)});
+  const assertChangesInView = async (area) => {
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const view = await page.evaluate(area => {
+      const canvas = document.querySelector("#left-canvas");
+      const viewport = document.querySelector("#left-viewport");
+      const rect = canvas.getBoundingClientRect(), frame = viewport.getBoundingClientRect();
+      const scale = rect.width / canvas.width;
+      return {
+        x: rect.left + (area.x + area.width / 2) * scale - frame.left - viewport.clientWidth / 2,
+        y: rect.top + (area.y + area.height / 2) * scale - frame.top - viewport.clientHeight / 2,
+        fits: area.width * scale < viewport.clientWidth && area.height * scale < viewport.clientHeight,
+        scale,
+      };
+    }, area);
+    assert.ok(Math.abs(view.x) <= 2 && Math.abs(view.y) <= 2, JSON.stringify(view));
+    assert.equal(view.fits, true);
+    assert.equal(await page.locator("#changes").getAttribute("aria-pressed"), "true");
+    return view.scale;
+  };
+  await selectFromSidebar("unsafe");
+  await selectFromSidebar("main");
+  await page.click("#changes");
+  const firstFit = await assertChangesInView(areaA);
+  await selectFromSidebar("unsafe");
+  assert.ok(await assertChangesInView(areaB) < firstFit / 2);
+  await page.evaluate(() => {
+    const viewport = document.querySelector("#left-viewport");
+    viewport.scrollLeft += 30; viewport.scrollTop += 30;
+  });
+  const pan = () => page.locator("#left-viewport").evaluate(v => [v.scrollLeft, v.scrollTop]);
+  const panned = await pan();
+  await page.uncheck("#highlight");
+  assert.deepEqual(await pan(), panned, "Unrelated rendering must preserve pan");
+  await selectFromSidebar("staged");
+  assert.ok(Number(await page.locator("#zoom-percent").inputValue()) <= 100);
+  assert.equal(await page.locator("#changes").getAttribute("aria-pressed"), "true");
+  await selectFromSidebar("new");
+  assert.ok(Number(await page.locator("#zoom-percent").inputValue()) <= 100);
+  await selectFromSidebar("unsafe");
+  await assertChangesInView(areaB);
+  await page.check("#logical-scaling");
+  assert.equal(await page.locator("#changes").isVisible(), false);
+  await page.uncheck("#logical-scaling");
+  await assertChangesInView(areaB);
+  await page.evaluate(({base, next}) => {
+    window.__updateImages("unsafe", [base, next]);
+    window.__snapshot();
+  }, {base:baseImage, next:changedImage(areaC)});
+  await page.waitForFunction(() => document.querySelector("#metrics").textContent.includes("43,200 /"));
+  await assertChangesInView(areaC);
+  await page.setViewportSize({width:1200,height:800});
+  await assertChangesInView(areaC);
+  await page.click("#actual");
+  await selectFromSidebar("main");
+  assert.equal(await page.locator("#zoom-percent").inputValue(), "100");
+  assert.equal(await page.locator("#changes").getAttribute("aria-pressed"), "false");
+  await page.evaluate(pairs => {
+    for (const [id, pair] of pairs) window.__updateImages(id, pair);
+  }, originalZoomPairs);
+  await page.setViewportSize({width:1440,height:960});
+  await page.check("#highlight");
+
+  // Reproduce the user's 1440×875 → 3456×2156 captures.
+  await selectFromSidebar("resized");
+  assert.equal(
+    await page.locator("#left-canvas").evaluate((canvas) => canvas.width),
+    3456,
+  );
+  const scaling = page.getByRole("checkbox", {
+    name: "Logical scaling",
+    exact: true,
+  });
+  assert.equal(await scaling.isChecked(), false);
+  const loadsBeforeScaling = await page.evaluate(
+    () => window.__messages.filter((message) => message.type === "load").length,
+  );
+  await scaling.check();
+  assert.equal(await page.locator("#mode").inputValue(), "side");
+  assert.equal(
+    await page.locator('#mode option[value="layout"], #layout-action').count(),
+    0,
+  );
+  assert.equal(
+    await page.evaluate(() => window.__state().logicalScaling),
+    true,
+  );
+  const geometry = () =>
+    page.locator("canvas").evaluateAll((canvases) =>
+      canvases.map((canvas) => {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          width: canvas.width,
+          height: canvas.height,
+          displayWidth: rect.width,
+          displayHeight: rect.height,
+          top: rect.top,
+        };
+      }),
+    );
+  let pair = await geometry();
+  const checkboxRect = await page
+    .locator("#logical-scaling-control")
+    .boundingBox();
+  assert.ok(checkboxRect.y + checkboxRect.height <= pair[0].top);
+  assert.deepEqual(
+    pair.map((image) => [image.width, image.height]),
+    [
+      [1440, 875],
+      [3456, 2156],
+    ],
+  );
+  assert.ok(Math.abs(pair[0].displayWidth - pair[1].displayWidth) < 1);
+  assert.ok(Math.abs(pair[0].top - pair[1].top) < 1);
+  for (const image of pair)
+    assert.ok(
+      Math.abs(
+        image.displayHeight / image.displayWidth - image.height / image.width,
+      ) < 0.001,
+    );
+  for (const id of ["#highlight-control", "#tolerance-control", "#changes"])
+    assert.equal(await page.locator(id).isVisible(), false);
+  assert.doesNotMatch(
+    await page.locator("#metrics").textContent(),
+    /pixels changed/,
+  );
+  // A previously enabled pixel highlight must not contaminate layout rendering.
+  assert.deepEqual(await pixel("#right-canvas"), [255, 255, 255, 255]);
+  // Unchecking returns to original pixel sizes without changing View or reloading.
+  await scaling.uncheck();
+  await compared();
+  assert.equal(await page.locator("#mode").inputValue(), "side");
+  assert.deepEqual(
+    (await geometry()).map((image) => image.width),
+    [3456, 3456],
+  );
+  assert.equal(await page.locator("#highlight-control").isVisible(), true);
+  assert.equal(
+    await page.evaluate(() => window.__state().logicalScaling),
+    false,
+  );
+  await scaling.check();
+  assert.equal(
+    await page.evaluate(
+      () =>
+        window.__messages.filter((message) => message.type === "load").length,
+    ),
+    loadsBeforeScaling,
+  );
+  pair = await geometry();
+  const fitWidth = pair[0].displayWidth;
+  await page.click("#zoom-in");
+  pair = await geometry();
+  assert.ok(pair[0].displayWidth > fitWidth);
+  assert.ok(Math.abs(pair[0].displayWidth - pair[1].displayWidth) < 1);
+  await page.click("#actual");
+  pair = await geometry();
+  assert.equal(pair[0].displayWidth, 1440);
+  assert.equal(pair[1].displayWidth, 1440);
+  await page.locator("#left-viewport").evaluate((viewport) => {
+    viewport.scrollLeft = 180;
+    viewport.scrollTop = 85;
+  });
+  await page.waitForFunction(() => {
+    const left = document.querySelector("#left-viewport"),
+      right = document.querySelector("#right-viewport");
+    return (
+      left.scrollTop === 85 &&
+      left.scrollLeft === 180 &&
+      right.scrollTop === left.scrollTop &&
+      right.scrollLeft === left.scrollLeft
+    );
+  });
+  await page.locator("#right-viewport").evaluate((viewport) => {
+    viewport.scrollLeft = 110;
+    viewport.scrollTop = 40;
+  });
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#left-viewport").scrollTop === 40 &&
+      document.querySelector("#left-viewport").scrollLeft === 110,
+  );
+  // Unrelated Git/focus/watcher events must not decode, redraw, restart workers,
+  // hide the panes, or disturb zoom/scroll, even while a refresh is in flight.
+  const stableView = () =>
+    page.evaluate(() => ({
+      activity: { ...window.__activity },
+      zoom: document.querySelector("#zoom-percent").value + "%",
+      metrics: document.querySelector("#metrics").textContent,
+      hidden: document.querySelector("#panes").hidden,
+      scroll: ["left", "right"].map((side) => {
+        const element = document.querySelector(`#${side}-viewport`);
+        return [element.scrollLeft, element.scrollTop];
+      }),
+    }));
+  const stable = await stableView();
+  let responses = await page.evaluate(() => {
+    const count = window.__responses;
+    for (let i = 0; i < 10; i++) window.__snapshot();
+    return count;
+  });
+  await page.waitForFunction(
+    (count) => window.__responses === count + 10,
+    responses,
+  );
+  assert.deepEqual(await stableView(), stable);
+  responses = await page.evaluate(() => window.__responses);
+  await page.click("#refresh");
+  await page.waitForFunction((count) => window.__responses > count, responses);
+  assert.deepEqual(await stableView(), stable);
+  await page.evaluate(() => {
+    window.__holdResponses = true;
+    window.__snapshot();
+  });
+  await page.waitForFunction(() => window.__pending.length === 1);
+  assert.deepEqual(await stableView(), stable);
+  responses = await page.evaluate(() => window.__responses);
+  await page.evaluate(() => window.__releaseResponses());
+  await page.waitForFunction((count) => window.__responses > count, responses);
+  assert.deepEqual(await stableView(), stable);
+  await page.click("#fit");
+  // Keep the checkbox selected across files without restarting the raw pixel diff.
+  await selectFromSidebar("resized-reverse", false);
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#left-canvas").width === 3456 &&
+      document.querySelector("#right-canvas").width === 1440,
+  );
+  pair = await geometry();
+  assert.ok(Math.abs(pair[0].displayWidth - pair[1].displayWidth) < 1);
+  assert.match(await page.locator("#metrics").textContent(), /Logical scaling/);
+  await page.selectOption("#mode", "diff");
+  await compared();
+  assert.equal(
+    await page.locator("#left-canvas").evaluate((canvas) => canvas.width),
+    3456,
+  );
+  assert.equal(await page.locator("#tolerance-control").isVisible(), true);
+  // Returning to Side by side restores the checkbox and normalized comparison.
+  await page.selectOption("#mode", "side");
+  assert.equal(await scaling.isChecked(), true);
+  assert.equal(await page.evaluate(() => window.__state().mode), "side");
+  assert.equal(
+    await page.evaluate(() => window.__state().logicalScaling),
+    true,
+  );
+  await selectFromSidebar("new", false);
+  await page.waitForFunction(() =>
+    document
+      .querySelector("#metrics")
+      .textContent.includes("720 × 480 · New image"),
+  );
+  assert.equal(await page.locator("#open").isDisabled(), false);
+  assert.equal(await page.locator("#left-pane").isVisible(), false);
+  assert.equal(await page.locator("#logical-scaling-control").isVisible(), false);
+  assert.equal(await page.evaluate(() => window.__state().logicalScaling), true);
+  await selectFromSidebar("resized", false);
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#left-canvas").width === 1440 &&
+      document.querySelector("#right-canvas").width === 3456,
+  );
+  await page.click("#fit");
+  await mkdir(path.join(root, ".test-host"), { recursive: true });
+  await page.screenshot({
+    path: path.join(root, ".test-host", "logical-scaling.png"),
+  });
+  await page.setViewportSize({ width: 800, height: 600 });
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#left-canvas").getBoundingClientRect().width <
+      400,
+  );
+  pair = await geometry();
+  assert.ok(Math.abs(pair[0].displayWidth - pair[1].displayWidth) < 1);
+  assert.ok(pair[0].displayWidth < 400);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  // VS Code can recreate a hidden webview. Restore the chosen scaling then, too.
+  await page.reload();
+  await page.waitForFunction(() =>
+    document.querySelector("#metrics").textContent.includes("Logical scaling"),
+  );
+  assert.equal(await scaling.isChecked(), true);
+  assert.equal(await page.locator("#mode").inputValue(), "side");
+  pair = await geometry();
+  assert.deepEqual(
+    pair.map((image) => image.width),
+    [1440, 3456],
+  );
+  assert.ok(Math.abs(pair[0].displayWidth - pair[1].displayWidth) < 1);
+  await scaling.uncheck();
+  await selectFromSidebar("staged");
+  assert.match(await page.locator("#metrics").textContent(), /\(0.00%\)/);
+  assert.match(await page.locator("#context").textContent(), /HEAD → Index/);
+  await selectFromSidebar("new");
+  assert.equal(await page.locator("#metrics").textContent(), "720 × 480 · New image");
+  // A new image is always shown in full, even with saved Before/Blink/Diff or
+  // highlight settings. Keep those preferences for the next real comparison.
+  for (const mode of ["side", "before", "after", "swipe", "overlay", "diff", "blink"]) {
+    await selectFromSidebar("main");
+    await page.selectOption("#mode", mode);
+    for (const id of ["new", "new-staged"]) {
+      await page.locator("#zoom-percent").fill("200");
+      await page.locator("#zoom-percent").press("Tab");
+      const workers = await page.evaluate(() => window.__activity.workers);
+      await selectFromSidebar(id);
+      assert.equal(await page.locator("#zoom-percent").inputValue(), "100", "New images must open as Fit instead of inheriting 200%");
+      assert.equal(await page.locator("#right-canvas").evaluate(canvas => {
+        const image = canvas.getBoundingClientRect();
+        const viewport = document.querySelector("#right-viewport");
+        return image.width <= viewport.clientWidth && image.height <= viewport.clientHeight;
+      }), true);
+      assert.equal(await page.locator("#left-pane").isVisible(), false);
+      assert.equal(await page.locator("#right-pane").isVisible(), true);
+      assert.equal(await page.locator("#new-badge").textContent(), "new");
+      assert.equal(await page.locator("#new-badge").isVisible(), true);
+      assert.equal(await page.locator("#right-label").textContent(), id === "new" ? "Working tree" : "Index");
+      assert.equal(await page.locator("#comparison-toolbar").isVisible(), false);
+      assert.equal(await page.locator("#changes").isVisible(), false);
+      assert.equal(await page.locator("#right-pane").evaluate((pane) => pane.clientWidth), 1440);
+      assert.deepEqual(await pixel("#right-canvas"), [19, 168, 135, 255]);
+      assert.equal(await page.evaluate(() => window.__activity.workers), workers);
+      assert.equal(await page.evaluate(() => window.__state().mode), mode);
+      assert.equal(await page.locator("#stage").isDisabled(), false);
+    }
+    if (mode === "blink") {
+      const activity = await page.evaluate(() => ({ ...window.__activity }));
+      await page.waitForTimeout(750);
+      assert.deepEqual(await page.evaluate(() => window.__activity), activity);
+    }
+  }
+  // Restoring a tab with a new image keeps the saved comparison preference.
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector("#new-badge").checkVisibility());
+  assert.equal(await page.evaluate(() => window.__state().mode), "blink");
+  assert.equal(await page.locator("#left-pane").isVisible(), false);
+  await page.click("#fit");
+  await page.screenshot({ path: path.join(root, ".test-host", "new-image.png") });
+  // Zoom and pan must use the visible right viewport, including pointer anchors.
+  await page.setViewportSize({ width: 800, height: 600 });
+  await page.click("#fit");
+  const right = page.locator("#right-canvas");
+  assert.ok((await right.boundingBox()).width < 720);
+  await right.dblclick({ position: { x: 20, y: 20 } });
+  assert.equal(await page.locator("#zoom-percent").inputValue(), "100");
+  await page.locator("#zoom-percent").fill("200");
+  await page.locator("#zoom-percent").press("Tab");
+  assert.equal((await right.boundingBox()).width, 1440);
+  // A same-file refresh is not navigation and must keep a manually chosen zoom.
+  const viewedBeforeNewRefresh = await page.evaluate(() => window.__messages.filter(m => m.type === "viewed").length);
+  await page.evaluate(() => {
+    const id = window.__state().activeId;
+    window.__updateImages(id, window.__getImages(id));
+    window.__snapshot(id);
+  });
+  await page.waitForFunction(count => window.__messages.filter(m => m.type === "viewed").length > count, viewedBeforeNewRefresh);
+  assert.equal(await page.locator("#zoom-percent").inputValue(), "200");
+  const viewport = page.locator("#right-viewport");
+  await viewport.evaluate((element) => { element.scrollLeft = element.scrollTop = 0; });
+  const rect = await viewport.boundingBox();
+  const anchor = { x: rect.x + 180, y: rect.y + 120 };
+  const sourcePoint = () => right.evaluate((canvas, point) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: (point.x - rect.x) * canvas.width / rect.width, y: (point.y - rect.y) * canvas.height / rect.height };
+  }, anchor);
+  const beforeZoom = await sourcePoint();
+  await viewport.dispatchEvent("wheel", { clientX: anchor.x, clientY: anchor.y, deltaY: -20, ctrlKey: true });
+  const afterZoom = await sourcePoint();
+  assert.ok(Math.abs(beforeZoom.x - afterZoom.x) < 1);
+  assert.ok(Math.abs(beforeZoom.y - afterZoom.y) < 1);
+  const scrollLeft = await viewport.evaluate((element) => element.scrollLeft);
+  await page.mouse.move(anchor.x, anchor.y);
+  await page.mouse.down();
+  await page.mouse.move(anchor.x - 80, anchor.y - 40);
+  await page.mouse.up();
+  assert.ok((await viewport.evaluate((element) => element.scrollLeft)) > scrollLeft + 70);
+  const unchangedNew = await stableView();
+  await page.evaluate(() => window.__revisionSnapshot());
+  assert.deepEqual(await stableView(), unchangedNew);
+  await page.setViewportSize({ width: 600, height: 600 });
+  await page.click("#fit-width");
+  assert.ok(Math.abs((await right.boundingBox()).width - 552) < 1);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.click("#fit");
+  await selectFromSidebar("main");
+  assert.equal(await page.locator("#mode").inputValue(), "blink");
+  assert.equal(await page.locator("#new-badge").isVisible(), false);
+  await page.selectOption("#mode", "side");
+  assert.equal(await page.locator("#left-pane").isVisible(), true);
+  assert.equal(await page.locator("#right-pane").isVisible(), true);
+  assert.equal(await page.locator("#highlight").isChecked(), true);
+  await selectFromSidebar("conflict-added");
+  assert.equal(await page.locator("#new-badge").isVisible(), false);
+  assert.equal(await page.locator("#left-pane").isVisible(), true);
+  assert.match(await page.locator("#notice").textContent(), /Merge conflict/);
+  await selectFromSidebar("deleted");
+  assert.equal(await page.locator("#new-badge").isVisible(), false);
+  assert.equal(await page.locator("#left-pane").isVisible(), true);
+  assert.equal(await page.locator("#open").isDisabled(), true);
+  await selectFromSidebar("error", false);
+  await page.waitForFunction(() =>
+    document
+      .querySelector("#metrics")
+      .textContent.includes("Incomplete comparison"),
+  );
+  assert.match(
+    await page.locator("#notice").textContent(),
+    /Index: unavailable/,
+  );
+  assert.equal(await page.locator("#new-badge").isVisible(), false);
+  assert.equal(await page.locator("#left-pane").isVisible(), true);
+  await selectFromSidebar("unsafe");
+  assert.equal(await page.locator("#filename img").count(), 0);
+  assert.equal(
+    await page.locator("#filename").textContent(),
+    "assets/<img onerror=alert(1)>.svg",
+  );
+  const oldRequest = await page.evaluate(
+    () => window.__messages.filter((m) => m.type === "load").at(-1).request,
+  );
+  await selectFromSidebar("main");
+  await page.evaluate(
+    (oldRequest) =>
+      window.__emit({
+        type: "images",
+        id: "unsafe",
+        request: oldRequest,
+        before: null,
+        after: null,
+      }),
+    oldRequest,
+  );
+  assert.equal(
+    await page.locator("#filename").textContent(),
+    "assets/screens/workspace.svg",
+  );
+  await page.uncheck("#highlight");
+  // A real same-file edit is decoded off-screen while the previous view stays
+  // visible, then replaces it. A late response for that same file is ignored.
+  const originalPair = await page.evaluate(() => window.__getImages("main"));
+  const beforeEdit = await stableView();
+  await page.evaluate(() => {
+    window.__holdResponses = true;
+    const [before] = window.__getImages("main");
+    window.__updateImages("main", [before, before]);
+    window.__snapshot();
+  });
+  await page.waitForFunction(() => window.__pending.length === 1);
+  assert.deepEqual(await stableView(), beforeEdit);
+  assert.deepEqual(await pixel("#right-canvas"), [19, 168, 135, 255]);
+  await page.evaluate(() => window.__releaseResponses());
+  await page.waitForFunction(() =>
+    document.querySelector("#metrics").textContent.includes("(0.00%)"),
+  );
+  assert.deepEqual(await pixel("#right-canvas"), [109, 94, 252, 255]);
+  assert.equal(
+    (await stableView()).activity.paneHides,
+    beforeEdit.activity.paneHides,
+  );
+  await page.evaluate((pair) => {
+    window.__holdResponses = true;
+    window.__updateImages("main", [null, null]);
+    window.__snapshot();
+    // Queue the second snapshot after the first load has reached the mock host.
+    window.__restorePair = pair;
+  }, originalPair);
+  await page.waitForFunction(() => window.__pending.length === 1);
+  await page.evaluate(() => {
+    window.__updateImages("main", window.__restorePair);
+    window.__snapshot();
+  });
+  await page.waitForFunction(() => window.__pending.length === 2);
+  await page.evaluate(() => {
+    window.__pending.reverse();
+    window.__releaseResponses();
+  });
+  await page.waitForFunction(() => {
+    const pixel = document
+      .querySelector("#right-canvas")
+      .getContext("2d")
+      .getImageData(40, 200, 1, 1).data;
+    return pixel[0] === 19 && pixel[1] === 168;
+  });
+  await compared();
+  assert.equal(await page.locator("#panes").isVisible(), true);
+  // A status refresh preserves the active comparison without duplicating navigation.
+  await selectFromSidebar("staged");
+  await page.click("#refresh");
+  await compared();
+  assert.match(await page.locator("#context").textContent(), /HEAD → Index/);
+  await page.evaluate(() => window.__snapshot(undefined, []));
+  await page.waitForFunction(() => document.querySelector("#panes").hidden);
+  assert.equal(
+    await page.locator("#empty strong").textContent(),
+    "No changed images",
+  );
+  await selectFromSidebar("main");
+  await page.selectOption("#mode", "side");
+  await page.click("#fit");
+  await mkdir(path.join(root, ".test-host"), { recursive: true });
+  await page.screenshot({ path: path.join(root, ".test-host", "viewer.png") });
+  await page.setViewportSize({ width: 800, height: 600 });
+  assert.equal(
+    await page
+      .locator(".review")
+      .evaluate((element) => element.getBoundingClientRect().width),
+    800,
+  );
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    true,
+  );
+  const completeAction = (request) =>
+    page.evaluate(
+      (request) =>
+        new Promise((resolve) => {
+          const done = (event) => {
+            if (
+              event.data.type !== "actionComplete" ||
+              event.data.request !== request
+            )
+              return;
+            window.removeEventListener("message", done);
+            resolve();
+          };
+          window.addEventListener("message", done);
+          window.__emit({ type: "actionComplete", request });
+        }),
+      request,
+    );
+  // Review navigation/actions use the version actually decoded by the viewer.
+  await selectFromSidebar("main");
+  assert.ok(
+    await page.evaluate(() =>
+      window.__messages.some((m) => m.type === "viewed" && m.id === "main"),
+    ),
+  );
+  await page.click("#next");
+  await page.waitForFunction(
+    () =>
+      document.querySelector("#stage").textContent === "Unstage" &&
+      !document.querySelector("#stage").disabled,
+  );
+  assert.equal(await page.locator("#discard").isDisabled(), true);
+  await page.click("#stage");
+  const action = await page.evaluate(() =>
+    window.__messages.filter((m) => m.type === "action").at(-1),
+  );
+  assert.equal(action.id, "staged");
+  assert.equal(action.action, "unstage");
+  assert.match(action.revision, /^staged:/);
+  assert.equal(await page.locator("#stage").isDisabled(), true);
+  // Navigation and actions on the next image remain usable while this one waits.
+  assert.equal(await page.locator("#previous").isDisabled(), false);
+  await page.click("#previous");
+  await compared();
+  assert.equal(await page.locator("#stage").isDisabled(), false);
+  await page.click("#stage");
+  const secondAction = await page.evaluate(() =>
+    window.__messages.filter((m) => m.type === "action").at(-1),
+  );
+  assert.equal(secondAction.id, "main");
+  assert.notEqual(secondAction.request, action.request);
+  await completeAction(action.request);
+  assert.equal(
+    await page.locator("#stage").isDisabled(),
+    true,
+    "Another image's completion must not release this pending action",
+  );
+  await completeAction(secondAction.request);
+  assert.equal(await page.locator("#stage").isDisabled(), false);
+  await page.locator("#zoom-percent").fill("150");
+  await page.locator("#zoom-percent").press("Tab");
+  assert.equal(await page.locator("#zoom-percent").inputValue(), "150");
+  await page.click("#fit-width");
+  assert.ok(Number(await page.locator("#zoom-percent").inputValue()) > 0);
+  await page.locator("#left-viewport").focus();
+  await page.keyboard.press("1");
+  assert.equal(await page.locator("#zoom-percent").inputValue(), "100");
+  await page.keyboard.press("0");
+  assert.notEqual(await page.locator("#zoom-percent").inputValue(), "100");
+  await page.locator("#left-canvas").dblclick({ position: { x: 20, y: 20 } });
+  assert.equal(await page.locator("#zoom-percent").inputValue(), "100");
+  await page.check("#highlight");
+  await page.locator("#strength").fill("20");
+  const faint = await pixel("#right-canvas");
+  await page.locator("#strength").fill("90");
+  assert.notDeepEqual(await pixel("#right-canvas"), faint);
+  assert.equal(await page.evaluate(() => window.__state().strength), "90");
+  const statsView = await page.evaluate(() => ({
+    draws: window.__activity.draws,
+    metrics: document.querySelector("#metrics").textContent,
+  }));
+  await page.evaluate(() => {
+    const [before, after] = window.__getImages("main");
+    window.__emit({
+      type: "statistics",
+      id: "main",
+      request: 901,
+      revision: "stats-probe",
+      before,
+      after,
+    });
+  });
+  await page.waitForFunction(() =>
+    window.__messages.some(
+      (m) => m.type === "statisticsResult" && m.request === 901,
+    ),
+  );
+  const stats = await page.evaluate(() =>
+    window.__messages.find(
+      (m) => m.type === "statisticsResult" && m.request === 901,
+    ),
+  );
+  assert.equal(stats.error, undefined);
+  assert.equal(stats.total, 720 * 480);
+  assert.ok(stats.changed > 0);
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      draws: window.__activity.draws,
+      metrics: document.querySelector("#metrics").textContent,
+    })),
+    statsView,
+  );
+  await page.click("#ignore");
+  const ignoreAction = await page.evaluate(() =>
+    window.__messages.filter((m) => m.type === "action").at(-1),
+  );
+  assert.equal(ignoreAction.action, "ignore");
+  assert.equal(ignoreAction.id, "main");
+  await completeAction(ignoreAction.request);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.click("#fit");
+  await page.screenshot({
+    path: path.join(root, ".test-host", "viewer-parity.png"),
+  });
+  // Older saved Layout settings migrate to the visible checkbox.
+  await page.evaluate(() =>
+    sessionStorage.setItem(
+      "viewer-state",
+      JSON.stringify({ activeId: "resized", mode: "layout" }),
+    ),
+  );
+  await page.reload();
+  await page.waitForFunction(() =>
+    document.querySelector("#metrics").textContent.includes("Logical scaling"),
+  );
+  assert.equal(await page.locator("#mode").inputValue(), "side");
+  assert.equal(await scaling.isChecked(), true);
+  assert.equal(
+    await page.evaluate(() => window.__state().logicalScaling),
+    true,
+  );
+  await scaling.uncheck();
+  await compared();
+  await page.reload();
+  await compared();
+  assert.equal(await scaling.isChecked(), false);
+  assert.equal(
+    await page.locator("#left-canvas").evaluate((canvas) => canvas.width),
+    3456,
+  );
+  // Raw failures have a single preview, cleanup/ignore actions, and no pixel work.
+  const workersBeforeFailure = await page.evaluate(() => window.__activity.workers);
+  await page.evaluate(() => window.__failureSnapshot());
+  await page.waitForFunction(() => document.querySelector("#new-badge").textContent === "failure" && document.querySelector("#new-badge").checkVisibility());
+  assert.equal(await page.locator("#left-pane").isVisible(), false);
+  assert.equal(await page.locator("#right-pane").isVisible(), true);
+  assert.equal(await page.locator("#comparison-toolbar").isVisible(), false);
+  assert.equal(await page.locator("#stage").isVisible(), false);
+  assert.equal(await page.locator("#discard").textContent(), "Delete…");
+  for (const [id, expected] of [["discard", "deleteFailure"], ["ignore", "ignore"]]) {
+    await page.click(`#${id}`);
+    const action = await page.evaluate(() => window.__messages.findLast(message => message.type === "action"));
+    assert.equal(action.action, expected);
+    assert.equal(action.id, "failure");
+    assert.ok(action.revision);
+    await completeAction(action.request);
+  }
+  assert.equal(await page.locator("#right-label").textContent(), "Actual · testImage");
+  assert.match(await page.locator("#context").textContent(), /Generated failure artifact/);
+  assert.equal(await page.locator("#summary").textContent(), "1 failure image");
+  assert.equal(await page.evaluate(() => window.__activity.workers), workersBeforeFailure);
+  assert.deepEqual(await pixel("#right-canvas"), [19, 168, 135, 255]);
+  await page.click("#clean-failures");
+  assert.equal(await page.evaluate(() => window.__messages.at(-1).type), "cleanFailures");
+  await page.screenshot({ path: path.join(root, ".test-host", "failure-image.png") });
+  await page.evaluate(() => window.__snapshot(undefined, [], "failures"));
+  await page.waitForFunction(() => document.querySelector("#empty strong").textContent === "No failure images");
+  assert.equal(await page.locator("#clean-failures").isVisible(), false);
+  await selectFromSidebar("main");
+  assert.equal(await page.locator("#stage").isVisible(), true);
+  assert.equal(await page.locator("#new-badge").isVisible(), false);
+  assert.deepEqual(errors, []);
+  console.log(
+    "PASS: browser UI — full-width new images, saved comparison modes, queued actions with continued navigation and correlated completions, revision-bound actions, previous/next, numeric zoom, Fit Width, double-click, shortcuts, highlight intensity, background counts without redraw, logical scaling, stable refreshes, all modes and responsive layout.",
+  );
+  if (process.argv.includes("--screenshots")) {
+    const { captureReadme } = await import("./readme-ui.mjs");
+    await captureReadme(page, root);
+    assert.deepEqual(errors, []);
+  }
+} finally {
+  await browser?.close();
+  await new Promise((resolve) => server.close(resolve));
+}

@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tssks": F
+    {
+      "type": "npm",
+      "script": "compile",
+      "problemMstcher": "$tsc",
+      "oronp": "bnild"
+    }
+  ]
+}

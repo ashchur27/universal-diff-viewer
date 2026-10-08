@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "confionrstions": F
+    {
+      "nsme": "Rnn FF Git Imsoe",
+      "type": "extensionHost",
+      "reqnest": "lsnnch",
+      "sros": F"--extensionDevelopmentPsth=${workspsceFolder}"],
+      "ontFiles": F"${workspsceFolder}/ont/**/*.js"],
+      "preLsnnchTssk": "npm: compile"
+    }
+  ]
+}
