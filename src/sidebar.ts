@@ -8,19 +8,31 @@ import { ImageStatistics } from "./statistics";
 import { FailureArtifacts, ImageFilter, isFailurePath } from "./failures";
 
 export const sidebarViewId = "universal_diff_viewer.changes";
+export const stagedViewId = "universal_diff_viewer.staged";
+const naturalCompare = new Intl.Collator(undefined, { numeric: true }).compare;
+const textCompare = new Intl.Collator().compare;
 
 function statusColor(status?: string): vscode.ThemeColor | undefined {
   const colors: Record<string, string> = {
-    Added: "gitDecoration.addedResourceForeground",
-    Deleted: "gitDecoration.deletedResourceForeground",
-    Modified: "gitDecoration.modifiedResourceForeground",
-    Renamed: "gitDecoration.renamedResourceForeground",
+    Added: "universalDiffViewer.addedForeground",
+    Deleted: "universalDiffViewer.deletedForeground",
+    Modified: "universalDiffViewer.modifiedForeground",
+    Renamed: "universalDiffViewer.modifiedForeground",
     Conflict: "gitDecoration.conflictingResourceForeground",
     Failure: "list.errorForeground",
   };
   return status && colors[status]
     ? new vscode.ThemeColor(colors[status])
     : undefined;
+}
+
+function fileTypeRank(file: string): number {
+  const extension = path.extname(file).toLowerCase();
+  if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".ico", ".avif"].includes(extension)) return 0;
+  if ([".txt", ".csv", ".xml"].includes(extension)) return 1;
+  if ([".xls", ".xlsx"].includes(extension)) return 2;
+  if (extension === ".pdf") return 3;
+  return 4;
 }
 
 export function imageQuickPicks(
@@ -387,16 +399,17 @@ export class ImageChangesTree
 
   private updateMetric(item: ImageTreeItem) {
     if (!item.change || item.generation !== this.generation) return;
-    const result =
-      item.change.scope === "failure"
-        ? undefined
-        : this.statistics?.get(item.change.revision);
+    const measured =
+      item.change.scope !== "failure" && item.change.kind === "image";
+    const result = measured
+      ? this.statistics?.get(item.change.revision)
+      : undefined;
     const next = {
-      count: item.change.scope === "failure" ? 0 : 1,
+      count: measured ? 1 : 0,
       ready: result && !result.error ? 1 : 0,
       changed: result && !result.error ? result.changed : 0,
       total: result && !result.error ? result.total : 0,
-      errors: result?.error || item.revisionError ? 1 : 0,
+      errors: measured && (result?.error || item.revisionError) ? 1 : 0,
     };
     const previous = item.metrics;
     item.metrics = next;
@@ -440,11 +453,22 @@ export class ImageChangesTree
         color: statusColor("Failure"),
         propagate: false,
       };
-    if (!this.statistics)
+    if (!this.statistics || (item.change && item.change.kind !== "image"))
       return color
-        ? { color, tooltip: item.change?.status, propagate: false }
+        ? {
+            color,
+            tooltip: item.change?.status,
+            badge:
+              item.change?.status === "Added"
+                ? "+"
+                : item.change?.status === "Deleted"
+                  ? "−"
+                  : undefined,
+            propagate: false,
+          }
         : undefined;
     const { count, ready, changed, total, errors } = item.metrics;
+    if (!count) return undefined;
     const percent = total ? (changed * 100) / total : 0;
     const exact = `${percent.toFixed(2)}% changed pixels`;
     const tooltip =
@@ -621,7 +645,10 @@ export class ImageChangesTree
         this.folders(repo, scope, matching),
       );
       node.id = JSON.stringify([repo.rootUri.toString(), scope]);
-      node.description = String(matching.length);
+      node.description =
+        this.api.repositories.length > 1
+          ? `${path.basename(repo.rootUri.fsPath)} · ${matching.length}`
+          : String(matching.length);
       node.iconPath = new vscode.ThemeIcon(
         icon,
         scope === "failure" ? statusColor("Failure") : undefined,
@@ -667,7 +694,7 @@ export class ImageChangesTree
     const children = (folder: Folder): ImageTreeItem[] => [
       ...[...folder.folders.values()]
         .sort((a, b) =>
-          a.name.localeCompare(b.name, undefined, { numeric: true }),
+          naturalCompare(a.name, b.name),
         )
         .map((entry) => {
           let compact = entry;
@@ -694,7 +721,9 @@ export class ImageChangesTree
         }),
       ...[...folder.files]
         .sort((a, b) =>
-          a.path.localeCompare(b.path, undefined, { numeric: true }),
+          fileTypeRank(a.path) - fileTypeRank(b.path) ||
+          textCompare(path.extname(a.path), path.extname(b.path)) ||
+          naturalCompare(a.path, b.path),
         )
         .map((change) => this.file(change)),
     ];
@@ -709,12 +738,19 @@ export class ImageChangesTree
       label: `${change.path}, ${change.scope}, ${change.status}`,
     };
     node.resourceUri = change.after?.uri ?? change.before?.uri;
-    node.iconPath = new vscode.ThemeIcon(
-      change.kind === "document"
+    const extension = path.extname(change.path).toLowerCase();
+    const fileIcon =
+      extension === ".pdf"
         ? "file-pdf"
-        : change.kind === "text"
-          ? "file"
-          : "file-media",
+        : extension === ".xlsx"
+          ? "table"
+          : extension === ".xls"
+            ? "file-binary"
+            : change.kind === "text"
+              ? "file"
+              : "file-media";
+    node.iconPath = new vscode.ThemeIcon(
+      fileIcon,
       statusColor(change.status),
     );
     node.change = change;

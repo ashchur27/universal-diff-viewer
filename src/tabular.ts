@@ -24,22 +24,15 @@ export function diffCells(
   before: Map<string, string> | undefined,
   after: Map<string, string> | undefined,
 ): Map<string, CellStatus> {
-  const refs = new Set<string>([...(before?.keys() ?? []), ...(after?.keys() ?? [])]);
   const status = new Map<string, CellStatus>();
-  for (const ref of refs) {
-    const beforeValue = before?.get(ref);
+  for (const [ref, beforeValue] of before ?? []) {
     const afterValue = after?.get(ref);
     status.set(
       ref,
-      beforeValue === undefined
-        ? "added"
-        : afterValue === undefined
-          ? "removed"
-          : afterValue === beforeValue
-            ? "same"
-            : "changed",
+      afterValue === undefined ? "removed" : afterValue === beforeValue ? "same" : "changed",
     );
   }
+  for (const ref of after?.keys() ?? []) if (!before?.has(ref)) status.set(ref, "added");
   return status;
 }
 
@@ -54,7 +47,31 @@ function escapeHtml(text: string): string {
 const maxRenderedRows = 200;
 const maxRenderedCols = 40;
 
-export function renderTabularDiffHtml(title: string, sheets: SheetDiff[]): string {
+const statusBadges: Record<string, [string, string]> = {
+  Added: ["New file", "ins"],
+  Deleted: ["Deleted file", "del"],
+  Modified: ["Modified", "mod"],
+  Renamed: ["Renamed", "mod"],
+  Conflict: ["Conflict", "del"],
+};
+
+export function statusBadge(status: string | undefined): string {
+  if (!status) return "";
+  const [label, kind] = statusBadges[status] ?? [status, "mod"];
+  return `<span class="badge ${kind}">${escapeHtml(label)}</span>`;
+}
+
+export const statusBadgeCss = `
+.badge { display: inline-block; padding: 1px 8px; margin-right: 6px; border-radius: 10px; color: var(--vscode-foreground); font-weight: 600; font-size: 12px; vertical-align: middle; }
+.badge.ins { background: var(--vscode-diffEditor-insertedTextBackground, rgba(0, 255, 0, .3)); }
+.badge.del { background: var(--vscode-diffEditor-removedTextBackground, rgba(255, 0, 0, .35)); }
+.badge.mod { background: rgba(255, 140, 0, .35); }`;
+
+export function renderTabularDiffHtml(
+  title: string,
+  sheets: SheetDiff[],
+  status?: string,
+): string {
   const sections = sheets.map((sheet) => {
     const rows = Math.min(sheet.rows, maxRenderedRows);
     const cols = Math.min(sheet.cols, maxRenderedCols);
@@ -78,12 +95,15 @@ export function renderTabularDiffHtml(title: string, sheets: SheetDiff[]): strin
       body += "</tr>";
     }
     const changedCount = [...sheet.status.values()].filter((value) => value !== "same").length;
-    return `<section>
+    return `<section id="sheet-${sheets.indexOf(sheet)}">
       <h2>${escapeHtml(sheet.name)} <span class="count">${changedCount} changed cell${changedCount === 1 ? "" : "s"}</span></h2>
       ${truncated ? `<p class="notice">Showing the first ${rows} rows × ${cols} columns of ${sheet.rows} × ${sheet.cols}.</p>` : ""}
       <div class="scroll"><table>${header}${body}</table></div>
     </section>`;
   });
+  const sheetLinks = sheets
+    .map((sheet, index) => `<a href="#sheet-${index}">${escapeHtml(sheet.name)}</a>`)
+    .join(" ");
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -106,14 +126,21 @@ export function renderTabularDiffHtml(title: string, sheets: SheetDiff[]): strin
   .legend { display: flex; gap: 16px; font-size: 12px; margin-bottom: 8px; }
   .legend span { display: inline-flex; align-items: center; gap: 4px; }
   .legend i { width: 10px; height: 10px; display: inline-block; border: 1px solid var(--vscode-panel-border); }
+  .sheets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .sheets a { color: var(--vscode-textLink-foreground); }
+  td .old, td .new { white-space: pre-line; }
+  h1 { font-size: 16px; margin: 0 0 10px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  ${statusBadgeCss}
 </style>
 </head>
 <body>
+  <h1>${statusBadge(status)}${escapeHtml(title)}</h1>
   <div class="legend">
     <span><i style="background: rgba(50, 180, 90, 0.25);"></i> Added</span>
     <span><i style="background: rgba(220, 80, 80, 0.25);"></i> Removed</span>
     <span><i style="background: rgba(220, 180, 60, 0.3);"></i> Changed</span>
   </div>
+    ${sheetLinks ? `<nav class="sheets" aria-label="Worksheets">Sheets: ${sheetLinks}</nav>` : ""}
   ${sections.join("\n") || '<p class="notice">No rows found.</p>'}
 </body>
 </html>`;

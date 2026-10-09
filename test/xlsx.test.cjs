@@ -103,6 +103,15 @@ test("readWorkbook parses shared strings, numbers, and inline strings", () => {
   assert.equal(afterSheet.cells.has("B2"), false);
 });
 
+test("readWorkbook preserves formulas alongside cached values", () => {
+  const sheet =
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+    '<row r="1"><c r="A1"><f>SUM(B1:C1)</f><v>42</v></c></row>' +
+    "</sheetData></worksheet>";
+  const workbook = readWorkbook(workbookBytes(sheet));
+  assert.equal(workbook.sheets[0].cells.get("A1"), "=SUM(B1:C1)\n42");
+});
+
 test("diffWorkbooks classifies added, removed, changed, and unchanged cells", () => {
   const before = readWorkbook(workbookBytes(beforeSheetXml));
   const after = readWorkbook(workbookBytes(afterSheetXml));

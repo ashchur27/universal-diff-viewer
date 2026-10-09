@@ -12,28 +12,25 @@
   </head>
   <body>
     <header>
-      <strong><span class="logo">FF</span> Git Image</strong
-      ><span id="summary">Image changes</span
-      ><button id="show-sidebar" title="Show Universal Diff Viewer sidebar">
-        Images</button
-      ><button id="refresh" title="Refresh Git status">↻ Refresh</button
-      ><button id="clean-failures" hidden title="Move all failure images to Trash after confirmation">Delete all failures…</button>
+      <strong><span class="logo">UDV</span> Universal Diff Viewer</strong
+      ><span id="summary">File changes</span
+      ><button id="show-sidebar" title="Show the Universal Diff Viewer file list" aria-label="Show file list">
+        Files</button
+      ><button id="refresh" title="Refresh Git status and file changes" aria-label="Refresh file changes">↻ Refresh</button
+      ><button id="clean-failures" hidden title="Move all failure artifacts to Trash after confirmation">Delete all failures…</button>
     </header>
     <main>
-      <section class="review" aria-label="Image comparison">
+      <section class="review" aria-label="File comparison">
         <div class="detail">
           <div>
-            <h1 id="filename">Image changes, in focus.</h1>
-            <p id="context">Choose an image in the Universal Diff Viewer sidebar.</p>
+            <h1><span id="status-badge" class="badge" hidden></span><span id="filename">Files in focus.</span></h1>
+            <p id="context">Choose a changed file in the Universal Diff Viewer sidebar.</p>
           </div>
           <div class="file-actions" aria-label="Current image actions">
-            <button id="previous" disabled title="Previous image (←)">←</button>
-            <button id="next" disabled title="Next image (→)">→</button>
-            <button id="stage" disabled>Stage</button>
-            <button id="discard" disabled>Discard…</button>
-            <button id="ignore" disabled>Ignore</button>
-            <button id="open" disabled title="Open the new version">
-              Open image ↗
+            <button id="previous" disabled title="Open the previous changed file (←)" aria-label="Previous changed file">←</button>
+            <button id="next" disabled title="Open the next changed file (→)" aria-label="Next changed file">→</button>
+            <button id="open" disabled title="Open the current file version in the editor" aria-label="Open file">
+              Open file ↗
             </button>
           </div>
         </div>
@@ -60,6 +57,18 @@
               value="50"
               aria-label="Mix percentage"
             /><output id="mix-value">50%</output></label
+          >
+          <label id="blink-control" hidden title="Time each version stays visible in Blink view"
+            >Interval
+            <input
+              id="blink-interval"
+              type="range"
+              min="100"
+              max="2000"
+              step="50"
+              value="650"
+              aria-label="Blink interval in milliseconds"
+            /><output id="blink-interval-value" for="blink-interval">650 ms</output></label
           >
           <label id="highlight-control"
             ><input id="highlight" type="checkbox" />Highlight changes</label
@@ -105,10 +114,10 @@
             ><input id="logical-scaling" type="checkbox" />Logical
             scaling</label
           >
-          <button id="fit">Fit</button><button id="fit-width">Width</button
-          ><button id="actual">1:1</button
-          ><button id="changes">Fit changes</button>
-          <button id="zoom-out" aria-label="Zoom out">−</button
+          <button id="fit" title="Fit the comparison in the available space">Fit</button><button id="fit-width" title="Fit the comparison to the available width">Width</button
+          ><button id="actual" title="Show the comparison at 100% scale">1:1</button
+          ><button id="changes" title="Fit the viewport around changed pixels">Fit changes</button>
+          <button id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button
           ><label class="zoom-value"
             ><input
               id="zoom-percent"
@@ -118,7 +127,7 @@
               value="100"
               aria-label="Zoom percent"
             /><output id="zoom">%</output></label
-          ><button id="zoom-in" aria-label="Zoom in">+</button>
+          ><button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
           <label
             >Background
             <select id="background">
@@ -134,8 +143,8 @@
         <div id="notice" role="status" hidden></div>
         <div id="viewer">
           <div id="empty">
-            <span class="empty-icon">◫</span><strong>No image selected</strong>
-            <p>PNG, JPEG, WebP, GIF, BMP, SVG, ICO and AVIF</p>
+            <span class="empty-icon">◫</span><strong>No file selected</strong>
+            <p>Images, CSV, XLSX, TXT, XML and supported documents</p>
           </div>
           <div id="panes" hidden>
             <section class="pane" id="left-pane">

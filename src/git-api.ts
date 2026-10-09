@@ -48,6 +48,7 @@ export interface Repository {
   revert(paths: string[]): Promise<void>;
 }
 export interface GitAPI {
+  readonly git?: { readonly path: string };
   readonly repositories: Repository[];
   readonly onDidOpenRepository: Event<Repository>;
   readonly onDidCloseRepository: Event<Repository>;

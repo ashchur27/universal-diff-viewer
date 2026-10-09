@@ -61,7 +61,7 @@ export class ImageActionQueue {
       : Math.max(0, this.waiting.length - 1);
     return task
       ? `${task.label}: ${task.message}${waiting ? ` · ${waiting} waiting` : ""}`
-      : "All image actions finished";
+      : "All file actions finished";
   }
 
   find(key: string) {

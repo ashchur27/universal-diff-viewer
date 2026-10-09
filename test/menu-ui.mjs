@@ -66,16 +66,15 @@ try {
     await node.hover();
     await action(node, staged ? "remove" : "add").waitFor({ state: "visible" });
     assert.equal(await action(node, staged ? "add" : "remove").count(), 0);
-    assert.equal(await action(node, "discard").count(), staged ? 0 : 1);
-    if (!staged) assert.ok(await action(node, "discard").isVisible());
+    assert.equal(await action(node, "discard").count(), 0);
   };
   await checkActions(row);
   await row.click({ button: "right" });
   const menu = page.locator(".monaco-menu-container");
   await menu.waitFor({ state: "visible" });
   const initial = await menu.innerText();
-  assert.match(initial, /Accept Image Changes/);
-  assert.match(initial, /Discard Image Changes/);
+  assert.match(initial, /Stage File Changes/);
+  assert.match(initial, /Discard File Changes/);
   await writeFile(path.join(control, "opened"), "yes");
   await wait("updated");
   assert.ok(
@@ -107,8 +106,8 @@ try {
   await folder.click({ button: "right" });
   await menu.waitFor({ state: "visible" });
   const folderCommands = await menu.innerText();
-  assert.match(folderCommands, /Accept Image Changes/);
-  assert.match(folderCommands, /Discard Image Changes/);
+  assert.match(folderCommands, /Stage File Changes/);
+  assert.match(folderCommands, /Discard File Changes/);
   await writeFile(path.join(control, "checked"), "yes");
   await wait("edited");
   assert.ok(
@@ -126,8 +125,8 @@ try {
         .locator(".label-name")
         .filter({ hasText: new RegExp(`^${label}$`) }),
     });
-  await checkActions(group("Changes"));
-  await checkActions(group("Staged Changes"), true);
+  assert.equal(await group("Changes").count(), 0);
+  assert.equal(await group("Staged Changes").count(), 0);
 
   // Exercise real inline commands, including their row arguments, against the
   // disposable Git fixture. All staged fixture changes are restored afterward.
@@ -137,29 +136,28 @@ try {
     .getByRole("treeitem")
     .filter({ hasText: "screen0.png" })
     .filter({ has: page.locator(".action-label.codicon-remove") });
-  const revealStaged = async (count) => {
-    await group("Staged Changes")
-      .filter({ hasText: String(count) })
-      .waitFor({ state: "visible" });
-    // Native tree rows outside the viewport are virtualized. Staging moves this
-    // image above the current scroll position; navigate there before locating it.
-    await page.getByRole("tree").first().focus();
+  const revealStaged = async () => {
+    // Native tree rows outside the viewport are virtualized; the Staged panel
+    // is the second tree.
+    await page.getByRole("tree").nth(1).focus();
     await page.keyboard.press("Home");
   };
-  await revealStaged(11);
+  await revealStaged();
   await stagedFile.waitFor({ state: "visible", timeout: 15000 });
   await checkActions(stagedFile, true);
   await action(stagedFile, "remove").click();
   await stagedFile.waitFor({ state: "hidden", timeout: 15000 });
   await checkActions(folder);
   await action(folder, "add").click();
-  await revealStaged(42);
+  await revealStaged();
   await stagedFile.waitFor({ state: "visible", timeout: 15000 });
   await checkActions(folder, true);
   await action(folder, "remove").click();
   await stagedFile.waitFor({ state: "hidden", timeout: 15000 });
   await checkActions(folder);
-  await action(folder, "discard").click();
+  await folder.click({ button: "right" });
+  await menu.waitFor({ state: "visible" });
+  await menu.getByText(/Discard File Changes/).click();
   await wait("discardCancelled");
   const confirmation = JSON.parse(
     await readFile(path.join(control, "discardCancelled"), "utf8"),
@@ -194,7 +192,7 @@ try {
     assert.match(commands, /Ignore Images/);
     assert.doesNotMatch(
       commands,
-      /Accept Image Changes|Unstage Image Changes|Discard Image Changes/,
+      /Stage File Changes|Unstage File Changes|Discard File Changes/,
     );
     await page.keyboard.press("Escape");
   }

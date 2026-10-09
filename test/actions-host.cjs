@@ -90,7 +90,7 @@ exports.run = async (api, repo) => {
   try {
     await tree.refresh();
     await actions.run("stage", await node("working"));
-    assert.deepEqual(cached().sort(), [primary, other, deleted, added].sort());
+    assert.deepEqual(cached().sort(), [primary, other, deleted, text, added].sort());
     assert.equal(await read(hidden), `working:${hidden}`);
     await actions.run("unstage", await node("staged"));
     assert.deepEqual(cached(), []);
@@ -106,7 +106,7 @@ exports.run = async (api, repo) => {
     await write(primary, "new-working-primary");
     await tree.refresh();
     confirm = async (changes) => {
-      assert.equal(changes.length, 4);
+      assert.equal(changes.length, 5);
       assert.ok(
         changes.every(
           (change) =>
@@ -162,7 +162,8 @@ exports.run = async (api, repo) => {
     for (const name of [other, deleted])
       assert.equal(await read(name), `before:${name}`);
     await assert.rejects(read(added), (error) => error.code === "FileNotFound");
-    for (const name of [hidden, text, sibling])
+    assert.equal(await read(text), `before:${text}`);
+    for (const name of [hidden, sibling])
       assert.equal(await read(name), `working:${name}`);
 
     await vscode.workspace.fs.rename(uri(oldName), uri(newName));
@@ -260,7 +261,7 @@ exports.run = async (api, repo) => {
     await vscode.workspace.fs.createDirectory(createRoot);
     await ignores.setIgnored({ rootUri: createRoot }, ["literal?.png"], true);
     assert.equal(
-      await read("ignore-create/.image_ignore"),
+      (await read("ignore-create/.image_ignore")).replace(/\r\n/g, "\n"),
       "/literal\\?.png\n",
     );
     assert.ok(

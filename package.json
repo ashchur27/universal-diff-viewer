@@ -2,8 +2,8 @@
   "name": "universal-diff-viewer",
   "displayName": "Universal Diff Viewer",
   "icon": "logo.png",
-  "description": "Review image changes in a VS Code tab: side by side, swipe, overlay, blink and pixel diff.",
-  "version": "1.1.2",
+  "description": "Review image, text, spreadsheet and document changes in a VS Code tab.",
+  "version": "1.0.0",
   "publisher": "ashchur",
   "license": "MIT",
   "engines": {
@@ -42,45 +42,58 @@
     },
     "virtualWorkspaces": false
   },
-  "activationEvents": [
-    "onWebviewPanel:universal_diff_viewer.review",
-    "onView:universal_diff_viewer.changes"
-  ],
   "contributes": {
+    "colors": [
+      {
+        "id": "universalDiffViewer.addedForeground",
+        "description": "File name color for new files in Universal Diff Viewer.",
+        "defaults": { "light": "#107C10", "dark": "#4EC94E", "highContrast": "#89D185", "highContrastLight": "#0B5A0B" }
+      },
+      {
+        "id": "universalDiffViewer.deletedForeground",
+        "description": "File name color for deleted files in Universal Diff Viewer.",
+        "defaults": { "light": "#C50F1F", "dark": "#F14C4C", "highContrast": "#F48771", "highContrastLight": "#A1000F" }
+      },
+      {
+        "id": "universalDiffViewer.modifiedForeground",
+        "description": "File name color for modified files in Universal Diff Viewer.",
+        "defaults": { "light": "#C75000", "dark": "#FF9F40", "highContrast": "#FFB86C", "highContrastLight": "#9A3D00" }
+      }
+    ],
     "commands": [
       {
         "command": "universal_diff_viewer.open",
-        "title": "Universal Diff Viewer: Open Image Changes",
+        "title": "Universal Diff Viewer: Open File Changes",
         "icon": "$(diff)"
       },
       {
         "command": "universal_diff_viewer.openFile",
-        "title": "Universal Diff Viewer: Compare Image Changes",
+        "title": "Universal Diff Viewer: Compare File Changes",
         "icon": "$(diff)"
       },
       {
         "command": "universal_diff_viewer.refresh",
-        "title": "Universal Diff Viewer: Refresh Image Changes",
+        "title": "Universal Diff Viewer: Refresh File Changes",
         "icon": "$(refresh)"
       },
       {
         "command": "universal_diff_viewer.findImage",
-        "title": "Universal Diff Viewer: Find Changed Image",
+        "title": "Universal Diff Viewer: Find Changed File",
         "icon": "$(search)"
       },
       {
         "command": "universal_diff_viewer.stage",
-        "title": "Universal Diff Viewer: Accept Image Changes (Stage)",
+        "title": "Universal Diff Viewer: Stage File Changes",
         "icon": "$(add)"
       },
       {
         "command": "universal_diff_viewer.unstage",
-        "title": "Universal Diff Viewer: Unstage Image Changes",
+        "title": "Universal Diff Viewer: Unstage File Changes",
         "icon": "$(remove)"
       },
       {
         "command": "universal_diff_viewer.discard",
-        "title": "Universal Diff Viewer: Discard Image Changes\u2026",
+        "title": "Universal Diff Viewer: Discard File Changes…",
         "icon": "$(discard)"
       },
       {
@@ -124,20 +137,32 @@
         "title": "Universal Diff Viewer: Unstage Current Image"
       },
       {
-        "command": "universal_diff_viewer.discardActive",
-        "title": "Universal Diff Viewer: Discard Current Image…"
-      },
-      {
         "command": "universal_diff_viewer.stageAll",
-        "title": "Universal Diff Viewer: Stage All Changes"
+        "title": "Stage All",
+        "category": "Universal Diff Viewer",
+        "icon": "$(add)"
       },
       {
         "command": "universal_diff_viewer.unstageAll",
-        "title": "Universal Diff Viewer: Unstage All Changes"
+        "title": "Unstage All",
+        "category": "Universal Diff Viewer",
+        "icon": "$(remove)"
       },
       {
-        "command": "universal_diff_viewer.discardAll",
-        "title": "Universal Diff Viewer: Discard All Changes…"
+        "command": "universal_diff_viewer.stageSelection",
+        "title": "Universal Diff Viewer: Stage Selected"
+      },
+      {
+        "command": "universal_diff_viewer.unstageSelection",
+        "title": "Universal Diff Viewer: Unstage Selected"
+      },
+      {
+        "command": "universal_diff_viewer.focusPrevious",
+        "title": "Universal Diff Viewer: Focus Previous File"
+      },
+      {
+        "command": "universal_diff_viewer.focusNext",
+        "title": "Universal Diff Viewer: Focus Next File"
       }
     ],
     "menus": {
@@ -151,21 +176,21 @@
       "scm/resourceState/context": [
         {
           "command": "universal_diff_viewer.openFile",
-          "when": "scmProvider == git && resourceExtname =~ /\\.(png|jpe?g|webp|gif|bmp|svg|ico|avif|pdf|xlsx?|csv|xml|txt)$/i",
+          "when": "scmProvider == git && resourceExtname =~ /\\.(png|jpe?g|webp|gif|bmp|svg|ico|avif|pdf|xlsx?|csv|xml|txt|json)$/i",
           "group": "navigation@5"
         }
       ],
       "explorer/context": [
         {
           "command": "universal_diff_viewer.openFile",
-          "when": "!explorerResourceIsFolder && resourceExtname =~ /\\.(png|jpe?g|webp|gif|bmp|svg|ico|avif|pdf|xlsx?|csv|xml|txt)$/i",
+          "when": "!explorerResourceIsFolder && resourceExtname =~ /\\.(png|jpe?g|webp|gif|bmp|svg|ico|avif|pdf|xlsx?|csv|xml|txt|json)$/i",
           "group": "navigation@5"
         }
       ],
       "editor/title": [
         {
           "command": "universal_diff_viewer.openFile",
-          "when": "resourceExtname =~ /\\.(png|jpe?g|webp|gif|bmp|svg|ico|avif|pdf|xlsx?|csv|xml|txt)$/i",
+          "when": "resourceExtname =~ /\\.(png|jpe?g|webp|gif|bmp|svg|ico|avif|pdf|xlsx?|csv|xml|txt|json)$/i",
           "group": "navigation@5"
         }
       ],
@@ -203,17 +228,12 @@
         {
           "command": "universal_diff_viewer.stageAll",
           "when": "view == universal_diff_viewer.changes",
-          "group": "7_modification@1"
+          "group": "navigation@-1"
         },
         {
           "command": "universal_diff_viewer.unstageAll",
-          "when": "view == universal_diff_viewer.changes",
-          "group": "7_modification@2"
-        },
-        {
-          "command": "universal_diff_viewer.discardAll",
-          "when": "view == universal_diff_viewer.changes",
-          "group": "7_modification@3"
+          "when": "view == universal_diff_viewer.staged",
+          "group": "navigation@-1"
         }
       ],
       "view/item/context": [
@@ -228,18 +248,13 @@
           "group": "changes@3"
         },
         {
-          "command": "universal_diff_viewer.discard",
-          "when": "view == universal_diff_viewer.changes && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.working$/",
-          "group": "inline@1"
-        },
-        {
           "command": "universal_diff_viewer.stage",
           "when": "view == universal_diff_viewer.changes && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.working$/",
           "group": "inline@2"
         },
         {
           "command": "universal_diff_viewer.unstage",
-          "when": "view == universal_diff_viewer.changes && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.staged$/",
+          "when": "view == universal_diff_viewer.staged && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.staged$/",
           "group": "inline@2"
         },
         {
@@ -249,7 +264,7 @@
         },
         {
           "command": "universal_diff_viewer.unstage",
-          "when": "view == universal_diff_viewer.changes && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.staged$/",
+          "when": "view == universal_diff_viewer.staged && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.staged$/",
           "group": "changes@2"
         },
         {
@@ -259,12 +274,12 @@
         },
         {
           "command": "universal_diff_viewer.ignore",
-          "when": "view == universal_diff_viewer.changes && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.(working|staged|conflict|failure)(\\.pending)?$/",
+          "when": "view =~ /^universal_diff_viewer\\.(changes|staged)$/ && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.(working|staged|conflict|failure)(\\.pending)?$/",
           "group": "ignore@1"
         },
         {
           "command": "universal_diff_viewer.unignore",
-          "when": "view == universal_diff_viewer.changes && universal_diff_viewer.showIgnored && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.(working|staged|conflict|failure)(\\.|$)/",
+          "when": "view =~ /^universal_diff_viewer\\.(changes|staged)$/ && universal_diff_viewer.showIgnored && viewItem =~ /^universal_diff_viewer\\.(image|folder|group)\\.(working|staged|conflict|failure)(\\.|$)/",
           "group": "ignore@2"
         },
         {
@@ -302,6 +317,30 @@
         {
           "command": "universal_diff_viewer.deleteSelectedFailures",
           "when": "false"
+        },
+        {
+          "command": "universal_diff_viewer.stageActive",
+          "when": "false"
+        },
+        {
+          "command": "universal_diff_viewer.unstageActive",
+          "when": "false"
+        },
+        {
+          "command": "universal_diff_viewer.stageAll",
+          "when": "false"
+        },
+        {
+          "command": "universal_diff_viewer.unstageAll",
+          "when": "false"
+        },
+        {
+          "command": "universal_diff_viewer.stageSelection",
+          "when": "false"
+        },
+        {
+          "command": "universal_diff_viewer.unstageSelection",
+          "when": "false"
         }
       ]
     },
@@ -318,15 +357,24 @@
       "universal_diff_viewer": [
         {
           "id": "universal_diff_viewer.changes",
-          "name": "Image Changes",
+          "name": "Unstaged",
+          "contextualTitle": "Universal Diff Viewer"
+        },
+        {
+          "id": "universal_diff_viewer.staged",
+          "name": "Staged",
           "contextualTitle": "Universal Diff Viewer"
         }
       ]
     },
     "viewsWelcome": [
       {
+        "view": "universal_diff_viewer.staged",
+        "contents": "No staged changes. Select files above and press Enter to stage them."
+      },
+      {
         "view": "universal_diff_viewer.changes",
-        "contents": "No changed images found. Open a Git repository and change an image to start comparing. Check .image_ignore for excluded images.\n[Refresh image changes](command:universal_diff_viewer.refresh)\n[Open comparison tab](command:universal_diff_viewer.open)"
+        "contents": "No changed files found. Open a Git repository and change a supported file to start comparing. Check .image_ignore for excluded images.\n[Refresh file changes](command:universal_diff_viewer.refresh)\n[Open comparison tab](command:universal_diff_viewer.open)"
       }
     ],
     "keybindings": [
@@ -341,39 +389,58 @@
         "when": "activeWebviewPanelId == 'universal_diff_viewer.review'"
       },
       {
-        "command": "universal_diff_viewer.discardActive",
-        "key": "ctrl+alt+d",
-        "when": "activeWebviewPanelId == 'universal_diff_viewer.review'"
-      },
-      {
-        "command": "universal_diff_viewer.stage",
+        "command": "universal_diff_viewer.stageSelection",
         "key": "ctrl+alt+s",
         "when": "focusedView == 'universal_diff_viewer.changes'"
       },
       {
-        "command": "universal_diff_viewer.unstage",
+        "command": "universal_diff_viewer.unstageSelection",
         "key": "ctrl+alt+u",
-        "when": "focusedView == 'universal_diff_viewer.changes'"
+        "when": "focusedView == 'universal_diff_viewer.staged'"
       },
       {
-        "command": "universal_diff_viewer.discard",
-        "key": "ctrl+alt+d",
-        "when": "focusedView == 'universal_diff_viewer.changes'"
+        "command": "universal_diff_viewer.stageSelection",
+        "key": "enter",
+        "when": "focusedView == 'universal_diff_viewer.changes' && !inputFocus"
+      },
+      {
+        "command": "universal_diff_viewer.unstageSelection",
+        "key": "enter",
+        "when": "focusedView == 'universal_diff_viewer.staged' && !inputFocus"
       },
       {
         "command": "universal_diff_viewer.stageAll",
         "key": "ctrl+alt+shift+s",
-        "when": "focusedView == 'universal_diff_viewer.changes'"
+        "when": "focusedView =~ /^universal_diff_viewer\\.(changes|staged)$/"
       },
       {
         "command": "universal_diff_viewer.unstageAll",
         "key": "ctrl+alt+shift+u",
-        "when": "focusedView == 'universal_diff_viewer.changes'"
+        "when": "focusedView =~ /^universal_diff_viewer\\.(changes|staged)$/"
       },
       {
-        "command": "universal_diff_viewer.discardAll",
-        "key": "ctrl+alt+shift+d",
-        "when": "focusedView == 'universal_diff_viewer.changes'"
+        "command": "universal_diff_viewer.focusPrevious",
+        "key": "up",
+        "args": { "view": "unstaged" },
+        "when": "focusedView == 'universal_diff_viewer.changes' && !inputFocus"
+      },
+      {
+        "command": "universal_diff_viewer.focusNext",
+        "key": "down",
+        "args": { "view": "unstaged" },
+        "when": "focusedView == 'universal_diff_viewer.changes' && !inputFocus"
+      },
+      {
+        "command": "universal_diff_viewer.focusPrevious",
+        "key": "up",
+        "args": { "view": "staged" },
+        "when": "focusedView == 'universal_diff_viewer.staged' && !inputFocus"
+      },
+      {
+        "command": "universal_diff_viewer.focusNext",
+        "key": "down",
+        "args": { "view": "staged" },
+        "when": "focusedView == 'universal_diff_viewer.staged' && !inputFocus"
       }
     ]
   },
@@ -390,7 +457,7 @@
   "devDependencies": {
     "@types/node": "18.19.130",
     "@types/vscode": "1.85.0",
-    "@vscode/vsce": "3.9.2",
+    "@vscode/vsce": "^4.0.0",
     "playwright": "1.55.1",
     "typescript": "5.9.3"
   }

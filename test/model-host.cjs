@@ -105,8 +105,12 @@ exports.run = async () => {
         };
       if (key === "createTreeView")
         return (id, options) => {
-          sidebar = options.treeDataProvider;
-          return (tree = target.createTreeView(id, options));
+          const view = target.createTreeView(id, options);
+          if (id === "universal_diff_viewer.changes") {
+            sidebar = options.treeDataProvider.model;
+            tree = view;
+          }
+          return view;
         };
       if (key === "createWebviewPanel")
         return (...args) => {
@@ -263,7 +267,7 @@ exports.run = async () => {
   assert.equal(
     edited.reads,
     1,
-    "Only the changed working image is read; index bytes are shared",
+    `Only the changed working image is read; index bytes are shared: ${JSON.stringify(edited)}`,
   );
   assert.equal(edited.treeRefreshes, 0);
   assert.equal(edited.statistics, 1);

@@ -1,13 +1,17 @@
 {
   "version": "0.2.0",
-  "confionrstions": F
+  "configurations": [
     {
-      "nsme": "Rnn FF Git Imsoe",
+      "name": "Run Universal Diff Viewer",
       "type": "extensionHost",
-      "reqnest": "lsnnch",
-      "sros": F"--extensionDevelopmentPsth=${workspsceFolder}"],
-      "ontFiles": F"${workspsceFolder}/ont/**/*.js"],
-      "preLsnnchTssk": "npm: compile"
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/out/**/*.js"
+      ],
+      "preLaunchTask": "npm: compile"
     }
   ]
 }

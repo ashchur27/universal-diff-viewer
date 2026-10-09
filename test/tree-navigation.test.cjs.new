@@ -1,0 +1,44 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { adjacentFile } = require("../out/tree-navigation");
+
+const file = (id) => ({ id, change: { path: id } });
+const folder = (id, children) => ({ id, children });
+const aLast = file("a/last.png");
+const bFirst = file("b/sub/first.txt");
+const bLast = file("b/sub/last.png");
+const cFirst = file("c/first.xlsx");
+const subB = folder("b/sub", [bFirst, bLast]);
+const folderA = folder("a", [aLast]);
+const folderB = folder("b", [subB]);
+const folderC = folder("c", [cFirst]);
+const roots = [
+  folder("Staged Changes", [folderA, folderB]),
+  folder("Changes", [folderC]),
+];
+
+test("down arrow walks files across nested folders and groups, skipping folder rows", () => {
+  const path = [];
+  let current = aLast;
+  for (let next; (next = adjacentFile(roots, current, "down")); current = next)
+    path.push(next.id);
+  assert.deepEqual(path, [bFirst.id, bLast.id, cFirst.id]);
+});
+
+test("up arrow walks the same files in reverse", () => {
+  assert.equal(adjacentFile(roots, cFirst, "up"), bLast);
+  assert.equal(adjacentFile(roots, bLast, "up"), bFirst);
+  assert.equal(adjacentFile(roots, bFirst, "up"), aLast);
+  assert.equal(adjacentFile(roots, aLast, "up"), undefined);
+});
+
+test("a selected folder moves to its nearest file in the arrow direction", () => {
+  assert.equal(adjacentFile(roots, folderB, "down"), bFirst);
+  assert.equal(adjacentFile(roots, folderB, "up"), aLast);
+  assert.equal(adjacentFile(roots, undefined, "down"), aLast);
+  assert.equal(adjacentFile(roots, undefined, "up"), cFirst);
+});
+
+test("refreshed tree nodes are matched by id", () => {
+  assert.equal(adjacentFile(roots, { id: bFirst.id }, "down"), bLast);
+});

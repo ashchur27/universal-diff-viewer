@@ -7,6 +7,7 @@ import {
   ImageTreeItem,
   imageQuickPicks,
   sidebarViewId,
+  stagedViewId,
 } from "./sidebar";
 import { ImageIgnore } from "./image-ignore";
 import { ImageAction, ImageActions, leaves } from "./actions";
@@ -21,6 +22,10 @@ import {
 import { diffWorkbooks, readWorkbook } from "./xlsx";
 import { diffCsv } from "./csv";
 import { renderTabularDiffHtml } from "./tabular";
+import { readPdf, renderPdfDiffHtml } from "./pdf";
+import { adjacentFile } from "./tree-navigation";
+import { readGitBlob } from "./git-blob";
+import { ScopedChangesView } from "./scoped-view";
 
 const viewType = "universal_diff_viewer.review";
 
@@ -117,7 +122,7 @@ class Review implements vscode.Disposable {
       })),
       notice:
         preferred && !selected
-          ? "No visible image changes found for the selected file. Check .image_ignore for excluded images."
+          ? "No visible file changes found for the selected file. Check .image_ignore for excluded images."
           : "",
     };
     const fingerprint = JSON.stringify(snapshot);
@@ -413,9 +418,13 @@ export async function activate(context: vscode.ExtensionContext) {
         getTreeItem: (item: vscode.TreeItem) => item,
         getChildren: () => [
           new vscode.TreeItem(
-            "Enable the built-in Git extension to load image changes.",
+            "Enable the built-in Git extension to load file changes.",
           ),
         ],
+      }),
+      vscode.window.registerTreeDataProvider(stagedViewId, {
+        getTreeItem: (item: vscode.TreeItem) => item,
+        getChildren: () => [],
       }),
     );
     return;
@@ -438,11 +447,27 @@ export async function activate(context: vscode.ExtensionContext) {
   const actions = new ImageActions(api, ignores, sidebar, undefined, (id) =>
     review?.viewed.get(id),
   );
+  const unstagedProvider = new ScopedChangesView(
+    sidebar,
+    ["conflict", "working", "failure"],
+    "working",
+  );
+  const stagedProvider = new ScopedChangesView(sidebar, ["staged"], "staged");
   const tree = vscode.window.createTreeView(sidebarViewId, {
-    treeDataProvider: sidebar,
+    treeDataProvider: unstagedProvider,
     showCollapseAll: true,
     canSelectMany: true,
   });
+  const stagedTree = vscode.window.createTreeView(stagedViewId, {
+    treeDataProvider: stagedProvider,
+    showCollapseAll: true,
+    canSelectMany: true,
+  });
+  const views = { unstaged: tree, staged: stagedTree };
+  let activeTree = tree;
+  const viewFor = (scope?: Scope) => (scope === "staged" ? stagedTree : tree);
+  const providerFor = (view: vscode.TreeView<ImageTreeItem>) =>
+    view === stagedTree ? stagedProvider : unstagedProvider;
   let lastCount = -1;
   let lastIgnored: boolean | undefined;
   let lastMessage: string | undefined;
@@ -485,14 +510,17 @@ export async function activate(context: vscode.ExtensionContext) {
     if (lastCount !== count) {
       lastCount = count;
       tree.badge = count
-        ? { value: count, tooltip: `${count} image changes` }
+        ? { value: count, tooltip: `${count} file changes` }
         : undefined;
     }
   };
   updateBadge();
   context.subscriptions.push(
     sidebar,
+    unstagedProvider,
+    stagedProvider,
     tree,
+    stagedTree,
     vscode.window.registerFileDecorationProvider(sidebar),
     ignores.onDidChange(updateBadge),
     sidebar.onDidChangeTreeData(updateBadge),
@@ -594,8 +622,8 @@ export async function activate(context: vscode.ExtensionContext) {
     await finishTask(task, "Moved failures to Trash");
   };
   const selectedTreeNodes = (input: unknown, selection?: ImageTreeItem[]) => {
-    if (!(input instanceof ImageTreeItem)) return selection ?? [...tree.selection];
-    const selected = selection ?? [...tree.selection];
+    if (!(input instanceof ImageTreeItem)) return selection ?? [...activeTree.selection];
+    const selected = selection ?? [...viewFor(input.change?.scope ?? unstagedProvider.scopeOf(input)).selection];
     return selected.some((node) => node.id === input.id) ? selected : [input];
   };
   const runAction = async (action: ImageAction, nodes: ImageTreeItem[]) => {
@@ -608,10 +636,48 @@ export async function activate(context: vscode.ExtensionContext) {
       );
     }
   };
+  const runBulkAction = async (action: ImageAction, nodes: ImageTreeItem[]) => {
+    if (!nodes.length) {
+      void vscode.window.showInformationMessage(
+        "Universal Diff Viewer: No visible file changes to process.",
+      );
+      return;
+    }
+    const roots = new Map<string, { label: string; nodes: ImageTreeItem[] }>();
+    for (const node of nodes) {
+      const root = node.change!.root;
+      const group = roots.get(root) ?? {
+        label: node.change!.repository,
+        nodes: [],
+      };
+      group.nodes.push(node);
+      roots.set(root, group);
+    }
+    const choices = [
+      {
+        label: "All repositories",
+        description: `${nodes.length} visible changes`,
+        nodes,
+      },
+      ...[...roots.entries()].map(([root, group]) => ({
+        label: group.label,
+        description: `${group.nodes.length} visible changes · ${root}`,
+        nodes: group.nodes,
+      })),
+    ];
+    const selected =
+      roots.size === 1
+        ? choices[1]
+        : await vscode.window.showQuickPick(choices, {
+            title: `Universal Diff Viewer: ${action} visible changes`,
+            placeHolder: "Choose the repository scope",
+          });
+    if (selected) await runAction(action, selected.nodes);
+  };
   const reveal = async (change: ImageChange) => {
     const uri = change.after?.uri ?? change.before?.uri;
     const item = uri && sidebar.findFile(uri, change.scope);
-    if (item) await tree.reveal(item, { select: true, focus: false });
+    if (item) await viewFor(change.scope).reveal(item, { select: true, focus: false });
   };
   const attach = (panel: vscode.WebviewPanel) => {
     review = new Review(
@@ -639,17 +705,32 @@ export async function activate(context: vscode.ExtensionContext) {
       : source.ref === undefined
         ? source.uri
         : api.toGitUri(source.uri, source.ref);
+  const focusTreeItem = (uri: vscode.Uri, scope?: Scope) => {
+    const item = sidebar.findFile(uri, scope);
+    if (item)
+      void viewFor(item.change?.scope).reveal(item, { select: false, focus: true, expand: false });
+  };
   const tabularPanels = new Map<string, vscode.WebviewPanel>();
   const maxTabularBytes = 20 * 1024 * 1024;
-  const readTabularBytes = async (source?: vscode.Uri) => {
+  const readTabularBytes = async (root: string, source?: ImageSource) => {
     if (!source) return undefined;
-    const stat = await vscode.workspace.fs.stat(source);
+    if (source.ref !== undefined)
+      return readGitBlob(
+        api.git?.path ?? "git",
+        root,
+        source.uri.fsPath,
+        source.ref,
+        maxTabularBytes,
+      );
+    const stat = await vscode.workspace.fs.stat(source.uri);
     if (stat.size > maxTabularBytes)
       throw new Error("File exceeds the 20 MiB preview limit");
-    return vscode.workspace.fs.readFile(source);
+    return vscode.workspace.fs.readFile(source.uri);
   };
-  const showTabularDiff = (label: string, html: string) => {
-    const existing = tabularPanels.get(label);
+  const showTabularDiff = (change: ImageChange, html: string) => {
+    const key = change.id;
+    const title = `Diff: ${change.path}${change.scope === "staged" ? " (Staged)" : ""}`;
+    const existing = tabularPanels.get(key);
     if (existing) {
       existing.webview.html = html;
       existing.reveal(vscode.ViewColumn.Active);
@@ -657,59 +738,69 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     const panel = vscode.window.createWebviewPanel(
       "universal_diff_viewer.tabularDiff",
-      `Diff: ${label}`,
+      title,
       vscode.ViewColumn.Active,
       { enableScripts: false },
     );
     panel.webview.html = html;
-    tabularPanels.set(label, panel);
+    tabularPanels.set(key, panel);
     panel.onDidDispose(() => {
-      if (tabularPanels.get(label) === panel) tabularPanels.delete(label);
+      if (tabularPanels.get(key) === panel) tabularPanels.delete(key);
     });
   };
-  const openWorkbookDiff = async (
-    label: string,
-    left?: vscode.Uri,
-    right?: vscode.Uri,
-  ) => {
-    const [beforeBytes, afterBytes] = await Promise.all([
-      readTabularBytes(left),
-      readTabularBytes(right),
+  const readDocumentPair = (change: ImageChange) =>
+    Promise.all([
+      readTabularBytes(change.root, change.before),
+      readTabularBytes(change.root, change.after),
     ]);
+  let extendedSequence = 0;
+  const openWorkbookDiff = async (label: string, change: ImageChange, sequence: number) => {
+    const [beforeBytes, afterBytes] = await readDocumentPair(change);
+    if (sequence !== extendedSequence) return;
     const beforeBook = beforeBytes && readWorkbook(beforeBytes);
     const afterBook = afterBytes && readWorkbook(afterBytes);
-    showTabularDiff(label, renderTabularDiffHtml(label, diffWorkbooks(beforeBook, afterBook)));
+    showTabularDiff(change, renderTabularDiffHtml(label, diffWorkbooks(beforeBook, afterBook), change.status));
   };
-  const openCsvDiff = async (
-    label: string,
-    left?: vscode.Uri,
-    right?: vscode.Uri,
-  ) => {
-    const [beforeBytes, afterBytes] = await Promise.all([
-      readTabularBytes(left),
-      readTabularBytes(right),
-    ]);
+  const openCsvDiff = async (label: string, change: ImageChange, sequence: number) => {
+    const [beforeBytes, afterBytes] = await readDocumentPair(change);
+    if (sequence !== extendedSequence) return;
     const decode = (bytes?: Uint8Array) =>
       bytes && Buffer.from(bytes).toString("utf8");
     showTabularDiff(
-      label,
+      change,
       renderTabularDiffHtml(label, [
-        diffCsv(label, decode(beforeBytes) || undefined, decode(afterBytes) || undefined),
-      ]),
+        diffCsv(label, decode(beforeBytes), decode(afterBytes)),
+      ], change.status),
+    );
+  };
+  const openPdfDiff = async (label: string, change: ImageChange, sequence: number) => {
+    const [beforeBytes, afterBytes] = await readDocumentPair(change);
+    if (sequence !== extendedSequence) return;
+    const beforePdf = beforeBytes && readPdf(beforeBytes);
+    const afterPdf = afterBytes && readPdf(afterBytes);
+    showTabularDiff(
+      change,
+      renderPdfDiffHtml(label, beforePdf, afterPdf, change.status),
     );
   };
   const openExtendedDiff = async (
     uri: vscode.Uri,
     scope: Scope | undefined,
     kind: "text" | "document",
+    fromTree: boolean,
   ) => {
+    const sequence = ++extendedSequence;
+    const focusTreeFile = (target: vscode.Uri, targetScope?: Scope) => {
+      if (fromTree && sequence === extendedSequence) focusTreeItem(target, targetScope);
+    };
     const change = sidebar.findFile(uri, scope)?.change;
     const left = resolveSource(change?.before);
     const right = resolveSource(change?.after);
     const label = change?.path ?? uri.fsPath;
-    if (kind === "text" && /\.csv$/i.test(uri.fsPath) && (left || right)) {
+    if (kind === "text" && /\.csv$/i.test(uri.fsPath) && change && (left || right)) {
       try {
-        await openCsvDiff(label, left, right);
+        await openCsvDiff(label, change, sequence);
+        focusTreeFile(uri, scope);
         return;
       } catch (error) {
         void vscode.window.showWarningMessage(
@@ -722,17 +813,30 @@ export async function activate(context: vscode.ExtensionContext) {
         "vscode.diff",
         left,
         right,
-        `${label} (${change?.before?.label ?? "Before"} ↔ ${change?.after?.label ?? "After"})`,
+        `${label} · ${change?.status ?? "Modified"} (${change?.before?.label ?? "Before"} ↔ ${change?.after?.label ?? "After"})`,
       );
+      focusTreeFile(uri, scope);
       return;
     }
-    if (kind === "document" && /\.xlsx$/i.test(uri.fsPath) && (left || right)) {
+    if (kind === "document" && /\.xlsx$/i.test(uri.fsPath) && change && (left || right)) {
       try {
-        await openWorkbookDiff(label, left, right);
+        await openWorkbookDiff(label, change, sequence);
+        focusTreeFile(uri, scope);
         return;
       } catch (error) {
         void vscode.window.showWarningMessage(
           `Universal Diff Viewer: Could not render a spreadsheet diff (${error instanceof Error ? error.message : String(error)}). Opening both versions instead.`,
+        );
+      }
+    }
+    if (kind === "document" && /\.pdf$/i.test(uri.fsPath) && change && (left || right)) {
+      try {
+        await openPdfDiff(label, change, sequence);
+        focusTreeFile(uri, scope);
+        return;
+      } catch (error) {
+        void vscode.window.showWarningMessage(
+          `Universal Diff Viewer: Could not extract a PDF text diff (${error instanceof Error ? error.message : String(error)}). Opening both versions instead.`,
         );
       }
     }
@@ -745,10 +849,13 @@ export async function activate(context: vscode.ExtensionContext) {
         viewColumn: vscode.ViewColumn.Beside,
         preview: false,
       });
+      focusTreeFile(uri, scope);
       return;
     }
     await vscode.commands.executeCommand("vscode.open", right ?? left ?? uri);
+    focusTreeFile(uri, scope);
   };
+  let lastOpen = { key: "", at: 0 };
   const open = (
     input?: unknown,
     requestedScope?: Scope,
@@ -769,9 +876,13 @@ export async function activate(context: vscode.ExtensionContext) {
         "index"
         ? "staged"
         : undefined);
+    // A tree click fires both the item command and the selection listener.
+    const key = `${uri?.toString()}|${scope}`;
+    if (uri && key === lastOpen.key && Date.now() - lastOpen.at < 500) return;
+    lastOpen = { key, at: Date.now() };
     const extendedKind = uri && !mimeType(uri.fsPath) ? fileKind(uri.fsPath) : undefined;
     if (uri && (extendedKind === "text" || extendedKind === "document")) {
-      void openExtendedDiff(uri, scope, extendedKind);
+      void openExtendedDiff(uri, scope, extendedKind, preserveFocus);
       return;
     }
     const current =
@@ -788,6 +899,48 @@ export async function activate(context: vscode.ExtensionContext) {
       current.select(uri.fsPath, scope, preserveFocus);
     else current.panel.reveal(undefined, preserveFocus);
   };
+  const viewFromArgs = (args: unknown) =>
+    args && typeof args === "object" && (args as { view?: string }).view === "staged"
+      ? stagedTree
+      : args && typeof args === "object" && (args as { view?: string }).view === "unstaged"
+        ? tree
+        : activeTree;
+  const moveAndOpenTreeFile = async (direction: "up" | "down", args?: unknown) => {
+    const view = viewFromArgs(args);
+    const target = adjacentFile(
+      providerFor(view).getChildren(),
+      view.selection[0],
+      direction,
+    );
+    if (target) await view.reveal(target, { select: true, focus: true });
+  };
+  const onSelection = (view: vscode.TreeView<ImageTreeItem>) =>
+    view.onDidChangeSelection(({ selection }) => {
+      if (selection.length) activeTree = view;
+      const item = selection[0];
+      const change = item?.change;
+      const uri = change?.after?.uri ?? change?.before?.uri;
+      if (!change || !uri) return;
+      setTimeout(() => open(uri, change.scope, true), 0);
+    });
+  context.subscriptions.push(
+    onSelection(tree),
+    onSelection(stagedTree),
+    vscode.commands.registerCommand("universal_diff_viewer.focusPrevious", async (args?: unknown) => {
+      await moveAndOpenTreeFile("up", args);
+    }),
+    vscode.commands.registerCommand("universal_diff_viewer.focusNext", async (args?: unknown) => {
+      await moveAndOpenTreeFile("down", args);
+    }),
+    vscode.commands.registerCommand("universal_diff_viewer.stageSelection", async () => {
+      const nodes = [...views.unstaged.selection].filter((node) => unstagedProvider.scopeOf(node) === "working");
+      if (nodes.length) await runAction("stage", nodes);
+    }),
+    vscode.commands.registerCommand("universal_diff_viewer.unstageSelection", async () => {
+      const nodes = [...views.staged.selection];
+      if (nodes.length) await runAction("unstage", nodes);
+    }),
+  );
   context.subscriptions.push(
     vscode.commands.registerCommand("universal_diff_viewer.filterImages", async () => {
       const selected = await vscode.window.showQuickPick(
@@ -838,7 +991,7 @@ export async function activate(context: vscode.ExtensionContext) {
       ),
     ),
     ...(
-      ["stage", "unstage", "discard"] as const
+      ["stage", "unstage"] as const
     ).map((action) =>
       vscode.commands.registerCommand(
         `universal_diff_viewer.${action}Active`,
@@ -847,14 +1000,15 @@ export async function activate(context: vscode.ExtensionContext) {
         },
       ),
     ),
-    ...(
-      ["stage", "unstage", "discard"] as ImageAction[]
-    ).map((action) =>
-      vscode.commands.registerCommand(`universal_diff_viewer.${action}All`, async () => {
-        const nodes = sidebar.leaves();
-        if (nodes.length) await runAction(action, nodes);
-      }),
-    ),
+    vscode.commands.registerCommand("universal_diff_viewer.stageAll", async () => {
+      await runBulkAction(
+        "stage",
+        unstagedProvider.leaves().filter((node) => node.change?.scope === "working"),
+      );
+    }),
+    vscode.commands.registerCommand("universal_diff_viewer.unstageAll", async () => {
+      await runBulkAction("unstage", stagedProvider.leaves());
+    }),
     vscode.commands.registerCommand("universal_diff_viewer.showIgnored", async () => {
       ignores.toggleShowIgnored();
       await context.workspaceState.update("showIgnored", ignores.showIgnored);
@@ -877,12 +1031,12 @@ export async function activate(context: vscode.ExtensionContext) {
       );
       if (!picks.length) {
         void vscode.window.showInformationMessage(
-          "No visible image changes found. Check .image_ignore for excluded images.",
+          "No visible file changes found. Check .image_ignore for excluded images.",
         );
         return;
       }
       const selected = await vscode.window.showQuickPick(picks, {
-        title: "Find changed image",
+        title: "Find changed file",
         placeHolder:
           "Search by filename, folder, repository, or staged/unstaged state",
         matchOnDescription: true,
@@ -894,7 +1048,7 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!uri) return;
       open(uri, change.scope);
       const item = sidebar.findFile(uri, change.scope);
-      if (item) await tree.reveal(item, { select: true, focus: false });
+      if (item) await viewFor(change.scope).reveal(item, { select: true, focus: false });
     }),
     vscode.commands.registerCommand("universal_diff_viewer.refresh", async () => {
       try {

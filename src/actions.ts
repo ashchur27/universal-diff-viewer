@@ -276,7 +276,7 @@ export class ImageActions {
               )
                 paths.add(literalPath(repo, change.previousPath));
             }
-            if (!paths.size) throw new Error("No image changes selected.");
+            if (!paths.size) throw new Error("No file changes selected.");
             const mutate = async (retry = false) => {
               if (retry) await this.tree.refresh([], [repo]);
               this.resolve(repo, changes);
@@ -320,7 +320,7 @@ export class ImageActions {
       const current = visible.get(previous.id);
       if (!current || identity(current) !== identity(previous))
         throw new Error(
-          "The selected image changes are no longer current. Refresh the tree and try again.",
+          "The selected file changes are no longer current. Refresh the tree and try again.",
         );
       return current;
     });

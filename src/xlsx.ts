@@ -2,6 +2,16 @@ import { inflateRawSync } from "node:zlib";
 import { diffCells, SheetDiff } from "./tabular";
 
 const maxEntryXmlLength = 8_000_000;
+const maxZipEntries = 4096;
+const maxUncompressedBytes = 64 * 1024 * 1024;
+
+function hasRange(buffer: Buffer, offset: number, length: number): boolean {
+  return offset >= 0 && length >= 0 && offset <= buffer.length - length;
+}
+
+function isSafeEntryName(name: string): boolean {
+  return !name.startsWith("/") && !name.split("/").includes("..") && !name.includes("\\");
+}
 
 function findEndOfCentralDirectory(buffer: Buffer): number {
   const minEOCD = 22;
@@ -18,10 +28,13 @@ function readZipEntries(buffer: Buffer): Map<string, Buffer> {
   const eocd = findEndOfCentralDirectory(buffer);
   const totalEntries = buffer.readUInt16LE(eocd + 10);
   const cdOffset = buffer.readUInt32LE(eocd + 16);
+  if (totalEntries > maxZipEntries || !hasRange(buffer, cdOffset, 0))
+    throw new Error(".xlsx package exceeds the ZIP structure limits");
   const entries = new Map<string, Buffer>();
   let offset = cdOffset;
+  let uncompressedBytes = 0;
   for (let i = 0; i < totalEntries; i++) {
-    if (buffer.readUInt32LE(offset) !== 0x02014b50)
+    if (!hasRange(buffer, offset, 46) || buffer.readUInt32LE(offset) !== 0x02014b50)
       throw new Error("Corrupt .xlsx package (bad central directory entry)");
     const compressionMethod = buffer.readUInt16LE(offset + 10);
     const compressedSize = buffer.readUInt32LE(offset + 20);
@@ -32,11 +45,22 @@ function readZipEntries(buffer: Buffer): Map<string, Buffer> {
     const name = buffer
       .subarray(offset + 46, offset + 46 + nameLength)
       .toString("utf8");
+    if (!isSafeEntryName(name))
+      throw new Error("Corrupt .xlsx package (unsafe ZIP entry path)");
+    if (
+      !hasRange(buffer, offset, 46 + nameLength + extraLength + commentLength) ||
+      compressedSize > maxUncompressedBytes
+    )
+      throw new Error(".xlsx package contains an invalid or oversized entry");
     offset += 46 + nameLength + extraLength + commentLength;
 
+    if (!hasRange(buffer, localHeaderOffset, 30) || buffer.readUInt32LE(localHeaderOffset) !== 0x04034b50)
+      throw new Error("Corrupt .xlsx package (bad local file header)");
     const localNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
     const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
     const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    if (!hasRange(buffer, dataStart, compressedSize))
+      throw new Error("Corrupt .xlsx package (entry data is out of bounds)");
     const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
     const data =
       compressionMethod === 0
@@ -46,6 +70,9 @@ function readZipEntries(buffer: Buffer): Map<string, Buffer> {
           : null;
     if (!data)
       throw new Error(`Unsupported .xlsx compression method ${compressionMethod}`);
+    uncompressedBytes += data.length;
+    if (uncompressedBytes > maxUncompressedBytes)
+      throw new Error(".xlsx package exceeds the 64 MiB decompression limit");
     entries.set(name, data);
   }
   return entries;
@@ -96,6 +123,7 @@ function parseWorksheet(xml: string, sharedStrings: string[]): Map<string, strin
     const [, ref, attrs, inner = ""] = match;
     const type = /\bt="([^"]+)"/.exec(attrs)?.[1];
     let value: string | undefined;
+    const formula = /<f[^>]*>([\s\S]*?)<\/f>/.exec(inner)?.[1];
     if (type === "inlineStr") {
       const text = /<t[^>]*>([\s\S]*?)<\/t>/.exec(inner)?.[1];
       value = text !== undefined ? decodeXmlEntities(text) : "";
@@ -111,6 +139,7 @@ function parseWorksheet(xml: string, sharedStrings: string[]): Map<string, strin
               : "FALSE"
             : decodeXmlEntities(raw);
     }
+    if (formula) value = `=${decodeXmlEntities(formula)}\n${value}`;
     if (value) grid.set(ref, value);
   }
   return grid;

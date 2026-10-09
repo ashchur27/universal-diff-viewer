@@ -157,7 +157,10 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 let browser;
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
+  });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 960 },
   });
@@ -793,13 +796,25 @@ try {
   await selectFromSidebar("staged");
   assert.match(await page.locator("#metrics").textContent(), /\(0.00%\)/);
   assert.match(await page.locator("#context").textContent(), /HEAD → Index/);
+  assert.equal(await page.locator("#status-badge").textContent(), "Modified");
+  assert.equal(await page.locator("#status-badge").getAttribute("class"), "badge mod");
   await selectFromSidebar("new");
+  assert.equal(await page.locator("#status-badge").textContent(), "New file");
+  assert.equal(await page.locator("#status-badge").getAttribute("class"), "badge ins");
+  if (process.env.UDV_SCREENSHOT)
+    await page.screenshot({ path: process.env.UDV_SCREENSHOT, clip: { x: 0, y: 0, width: 1440, height: 140 } });
   assert.equal(await page.locator("#metrics").textContent(), "720 × 480 · New image");
   // A new image is always shown in full, even with saved Before/Blink/Diff or
   // highlight settings. Keep those preferences for the next real comparison.
   for (const mode of ["side", "before", "after", "swipe", "overlay", "diff", "blink"]) {
     await selectFromSidebar("main");
     await page.selectOption("#mode", mode);
+    assert.equal(await page.locator("#blink-control").isVisible(), mode === "blink");
+    if (mode === "blink") {
+      await page.locator("#blink-interval").fill("1200");
+      assert.equal(await page.locator("#blink-interval-value").textContent(), "1200 ms");
+      assert.equal(await page.evaluate(() => window.__state().blinkInterval), "1200");
+    }
     for (const id of ["new", "new-staged"]) {
       await page.locator("#zoom-percent").fill("200");
       await page.locator("#zoom-percent").press("Tab");
@@ -822,7 +837,6 @@ try {
       assert.deepEqual(await pixel("#right-canvas"), [19, 168, 135, 255]);
       assert.equal(await page.evaluate(() => window.__activity.workers), workers);
       assert.equal(await page.evaluate(() => window.__state().mode), mode);
-      assert.equal(await page.locator("#stage").isDisabled(), false);
     }
     if (mode === "blink") {
       const activity = await page.evaluate(() => ({ ...window.__activity }));
@@ -834,6 +848,7 @@ try {
   await page.reload();
   await page.waitForFunction(() => document.querySelector("#new-badge").checkVisibility());
   assert.equal(await page.evaluate(() => window.__state().mode), "blink");
+  assert.equal(await page.locator("#blink-interval").inputValue(), "1200");
   assert.equal(await page.locator("#left-pane").isVisible(), false);
   await page.click("#fit");
   await page.screenshot({ path: path.join(root, ".test-host", "new-image.png") });
@@ -1038,40 +1053,45 @@ try {
       window.__messages.some((m) => m.type === "viewed" && m.id === "main"),
     ),
   );
+  assert.equal(await page.locator("#stage, #discard, #ignore").count(), 0);
+  const trigger = (action) =>
+    page.evaluate((value) => window.__emit({ type: "triggerAction", action: value }), action);
+  const actionMessages = () =>
+    page.evaluate(() => window.__messages.filter((m) => m.type === "action"));
   await page.click("#next");
-  await page.waitForFunction(
-    () =>
-      document.querySelector("#stage").textContent === "Unstage" &&
-      !document.querySelector("#stage").disabled,
-  );
-  assert.equal(await page.locator("#discard").isDisabled(), true);
-  await page.click("#stage");
-  const action = await page.evaluate(() =>
-    window.__messages.filter((m) => m.type === "action").at(-1),
-  );
+  await compared();
+  const beforeWrongScope = (await actionMessages()).length;
+  await trigger("stage");
+  await trigger("discard");
+  assert.equal((await actionMessages()).length, beforeWrongScope);
+  await trigger("unstage");
+  const action = (await actionMessages()).at(-1);
   assert.equal(action.id, "staged");
   assert.equal(action.action, "unstage");
   assert.match(action.revision, /^staged:/);
-  assert.equal(await page.locator("#stage").isDisabled(), true);
+  await trigger("unstage");
+  assert.equal((await actionMessages()).length, beforeWrongScope + 1);
   // Navigation and actions on the next image remain usable while this one waits.
   assert.equal(await page.locator("#previous").isDisabled(), false);
   await page.click("#previous");
   await compared();
-  assert.equal(await page.locator("#stage").isDisabled(), false);
-  await page.click("#stage");
-  const secondAction = await page.evaluate(() =>
-    window.__messages.filter((m) => m.type === "action").at(-1),
-  );
+  await trigger("stage");
+  const secondAction = (await actionMessages()).at(-1);
   assert.equal(secondAction.id, "main");
   assert.notEqual(secondAction.request, action.request);
   await completeAction(action.request);
+  await trigger("stage");
   assert.equal(
-    await page.locator("#stage").isDisabled(),
-    true,
+    (await actionMessages()).length,
+    beforeWrongScope + 2,
     "Another image's completion must not release this pending action",
   );
   await completeAction(secondAction.request);
-  assert.equal(await page.locator("#stage").isDisabled(), false);
+  await trigger("stage");
+  const thirdAction = (await actionMessages()).at(-1);
+  assert.equal(thirdAction.id, "main");
+  assert.notEqual(thirdAction.request, secondAction.request);
+  await completeAction(thirdAction.request);
   await page.locator("#zoom-percent").fill("150");
   await page.locator("#zoom-percent").press("Tab");
   assert.equal(await page.locator("#zoom-percent").inputValue(), "150");
@@ -1125,13 +1145,6 @@ try {
     })),
     statsView,
   );
-  await page.click("#ignore");
-  const ignoreAction = await page.evaluate(() =>
-    window.__messages.filter((m) => m.type === "action").at(-1),
-  );
-  assert.equal(ignoreAction.action, "ignore");
-  assert.equal(ignoreAction.id, "main");
-  await completeAction(ignoreAction.request);
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.click("#fit");
   await page.screenshot({
@@ -1170,16 +1183,9 @@ try {
   assert.equal(await page.locator("#left-pane").isVisible(), false);
   assert.equal(await page.locator("#right-pane").isVisible(), true);
   assert.equal(await page.locator("#comparison-toolbar").isVisible(), false);
-  assert.equal(await page.locator("#stage").isVisible(), false);
-  assert.equal(await page.locator("#discard").textContent(), "Delete…");
-  for (const [id, expected] of [["discard", "deleteFailure"], ["ignore", "ignore"]]) {
-    await page.click(`#${id}`);
-    const action = await page.evaluate(() => window.__messages.findLast(message => message.type === "action"));
-    assert.equal(action.action, expected);
-    assert.equal(action.id, "failure");
-    assert.ok(action.revision);
-    await completeAction(action.request);
-  }
+  const beforeFailureTrigger = (await actionMessages()).length;
+  for (const value of ["stage", "unstage", "discard"]) await trigger(value);
+  assert.equal((await actionMessages()).length, beforeFailureTrigger);
   assert.equal(await page.locator("#right-label").textContent(), "Actual · testImage");
   assert.match(await page.locator("#context").textContent(), /Generated failure artifact/);
   assert.equal(await page.locator("#summary").textContent(), "1 failure image");
@@ -1192,7 +1198,6 @@ try {
   await page.waitForFunction(() => document.querySelector("#empty strong").textContent === "No failure images");
   assert.equal(await page.locator("#clean-failures").isVisible(), false);
   await selectFromSidebar("main");
-  assert.equal(await page.locator("#stage").isVisible(), true);
   assert.equal(await page.locator("#new-badge").isVisible(), false);
   assert.deepEqual(errors, []);
   console.log(

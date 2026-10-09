@@ -55,6 +55,7 @@ const save = () =>
     strength: $("strength").value,
     background: $("background").value,
     tolerance: $("tolerance").value,
+    blinkInterval: $("blink-interval").value,
   });
 
 $("mode").value = modes.includes(saved.mode) ? saved.mode : "side";
@@ -72,6 +73,10 @@ $("tolerance").value = String(
   Math.max(0, Math.min(255, Math.floor(Number(saved.tolerance) || 0))),
 );
 updateTolerance();
+$("blink-interval").value = String(
+  Math.max(100, Math.min(2000, Math.round((Number(saved.blinkInterval) || 650) / 50) * 50)),
+);
+$("blink-interval-value").textContent = `${$("blink-interval").value} ms`;
 document.body.dataset.background = $("background").value;
 
 function updateTolerance() {
@@ -130,23 +135,35 @@ function select(id, reload = true) {
   updateActions();
   $("open").disabled = !item || item.afterLabel === "Not present";
   if (!item) {
-    $("filename").textContent = "Image changes, in focus.";
-    $("context").textContent = "Choose an image in the Universal Diff Viewer sidebar.";
+    $("status-badge").hidden = true;
+    $("filename").textContent = "Files in focus.";
+    $("context").textContent = "Choose a changed file in the Universal Diff Viewer sidebar.";
     $("metrics").textContent = "";
     empty(
       items.length
-        ? "Choose an image"
+        ? "Choose a file"
         : filter === "failures"
           ? "No failure images"
           : "No changed images",
       items.length
-        ? "Choose an image in the Universal Diff Viewer sidebar. Use Images above to open it."
+        ? "Choose a changed file in the Universal Diff Viewer sidebar. Use Files above to open it."
         : filter === "failures"
           ? "No visible images in failures folders. Check .image_ignore or use Refresh to scan again."
           : "Open a Git repository and change an image. Check .image_ignore and the image filter for excluded files, or use Refresh.",
     );
     return;
   }
+  const [badgeText, badgeKind] =
+    item.scope === "failure"
+      ? ["Failure", "del"]
+      : ({
+          Added: ["New file", "ins"],
+          Deleted: ["Deleted file", "del"],
+          Conflict: ["Conflict", "del"],
+        }[item.status] ?? [item.status, "mod"]);
+  $("status-badge").textContent = badgeText;
+  $("status-badge").className = `badge ${badgeKind}`;
+  $("status-badge").hidden = !badgeText;
   $("filename").textContent = item.path;
   $("context").textContent =
     item.scope === "failure"
@@ -293,12 +310,8 @@ window.addEventListener("message", async (event) => {
     updateActions();
     if (comparisonValid && !isLogicalScaling() && !singleImage) calculate();
   } else if (data.type === "error") notice(data.message);
-  else if (data.type === "triggerAction")
-    act(
-      data.action === "discard" && current()?.scope === "failure"
-        ? "deleteFailure"
-        : data.action,
-    );
+  else if (data.type === "triggerAction" && ["stage", "unstage"].includes(data.action))
+    act(data.action);
 });
 
 function raster(image) {
@@ -405,6 +418,7 @@ function render() {
   $("new-badge").dataset.kind =
     current()?.scope === "failure" ? "failure" : "new";
   $("mix-control").hidden = !["swipe", "overlay"].includes(mode);
+  $("blink-control").hidden = mode !== "blink" || singleImage;
   $("mix-label").textContent = mode === "swipe" ? "Position" : "Opacity";
   $("mix-value").textContent = `${Math.round(mix * 100)}%`;
   $("logical-scaling-control").hidden = !side;
@@ -620,7 +634,7 @@ function startBlink() {
     blinkTimer = setInterval(() => {
       blinkAfter = !blinkAfter;
       render();
-    }, 650);
+    }, Number($("blink-interval").value) || 650);
 }
 for (const viewport of viewports) {
   viewport.tabIndex = 0;
@@ -763,6 +777,11 @@ $("background").addEventListener("change", () => {
   document.body.dataset.background = $("background").value;
   save();
 });
+$("blink-interval").addEventListener("input", () => {
+  $("blink-interval-value").textContent = `${$("blink-interval").value} ms`;
+  startBlink();
+  save();
+});
 $("fit").addEventListener("click", () => {
   zoomMode = "fit";
   render();
@@ -789,25 +808,9 @@ $("open").addEventListener("click", () =>
   vscode.postMessage({ type: "open", id: activeId }),
 );
 function updateActions() {
-  const item = current(),
-    index = items.findIndex((item) => item.id === activeId);
-  const failure = item?.scope === "failure";
-  $("stage").hidden = failure;
-  const actionBusy = [...pendingActions.values()].includes(activeId);
-  const ready = loaded && comparisonValid && !!revision && !actionBusy;
+  const index = items.findIndex((item) => item.id === activeId);
   $("previous").disabled = index <= 0;
   $("next").disabled = index < 0 || index >= items.length - 1;
-  $("stage").textContent = item?.scope === "staged" ? "Unstage" : "Stage";
-  $("stage").disabled =
-    !ready ||
-    !item ||
-    item.ignored ||
-    ["conflict", "failure"].includes(item.scope);
-  $("discard").textContent = failure ? "Delete…" : "Discard…";
-  $("discard").disabled =
-    !ready || !item || (!failure && (item.ignored || item.scope !== "working"));
-  $("ignore").textContent = item?.ignored ? "Stop ignoring" : "Ignore";
-  $("ignore").disabled = !revision || !item || actionBusy;
 }
 function step(direction) {
   const index = items.findIndex((item) => item.id === activeId);
@@ -817,12 +820,16 @@ function step(direction) {
   vscode.postMessage({ type: "reveal", id: item.id });
 }
 function act(action) {
+  const item = current();
   if (
     !revision ||
-    !current() ||
-    (current().scope === "failure" &&
-      !["deleteFailure", "ignore", "unignore"].includes(action)) ||
-    [...pendingActions.values()].includes(activeId)
+    !item ||
+    !loaded ||
+    !comparisonValid ||
+    item.ignored ||
+    [...pendingActions.values()].includes(activeId) ||
+    (action === "stage" && item.scope !== "working") ||
+    (action === "unstage" && item.scope !== "staged")
   )
     return;
   const request = ++actionRequest;
@@ -838,15 +845,6 @@ function act(action) {
 }
 $("previous").addEventListener("click", () => step(-1));
 $("next").addEventListener("click", () => step(1));
-$("stage").addEventListener("click", () =>
-  act(current()?.scope === "staged" ? "unstage" : "stage"),
-);
-$("discard").addEventListener("click", () =>
-  act(current()?.scope === "failure" ? "deleteFailure" : "discard"),
-);
-$("ignore").addEventListener("click", () =>
-  act(current()?.ignored ? "unignore" : "ignore"),
-);
 $("zoom-percent").addEventListener("change", () =>
   zoom(Math.max(1, Number($("zoom-percent").value) || 100) / 100),
 );

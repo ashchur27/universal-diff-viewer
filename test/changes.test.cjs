@@ -1,6 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { collectChanges, mimeType, publicChange } = require("../out/changes");
+const {
+  collectChanges,
+  isTemporaryOfficeFile,
+  mimeType,
+  publicChange,
+} = require("../out/changes");
 const { Status } = require("../out/git-api");
 
 const uri = (path) => ({ fsPath: path, toString: () => `file://${path}` });
@@ -102,6 +107,7 @@ test("tracks text and document files alongside images, each with the right kind"
         change("notes.txt", Status.MODIFIED),
         change("data.csv", Status.MODIFIED),
         change("config.xml", Status.MODIFIED),
+        change("settings.json", Status.MODIFIED),
         change("report.pdf", Status.MODIFIED),
         change("sheet.xlsx", Status.MODIFIED),
         change("unsupported.tiff", Status.MODIFIED),
@@ -112,10 +118,25 @@ test("tracks text and document files alongside images, each with the right kind"
   assert.equal(kindOf("notes.txt"), "text");
   assert.equal(kindOf("data.csv"), "text");
   assert.equal(kindOf("config.xml"), "text");
+  assert.equal(kindOf("settings.json"), "text");
   assert.equal(kindOf("report.pdf"), "document");
   assert.equal(kindOf("sheet.xlsx"), "document");
   assert.equal(kindOf("unsupported.tiff"), undefined);
-  assert.equal(changes.length, 5);
+  assert.equal(changes.length, 6);
+});
+test("filters Office temporary lock files from supported changes", () => {
+  const changes = collectChanges(
+    repository({
+      workingTreeChanges: [
+        change("~$MicroSectionsExport.xlsx", Status.MODIFIED),
+        change("MicroSectionsExport.xlsx", Status.MODIFIED),
+      ],
+    }),
+  );
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].path, "MicroSectionsExport.xlsx");
+  assert.equal(isTemporaryOfficeFile("folder/~$Book.xls"), true);
+  assert.equal(isTemporaryOfficeFile("folder/Book.xlsx"), false);
 });
 test("conflicts use HEAD rather than the absent stage-zero index", () => {
   const [entry] = collectChanges(

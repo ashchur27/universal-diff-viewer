@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { createHash } from "node:crypto";
 import { GitAPI } from "./git-api";
-import { ImageChange, ImageSource, mimeType } from "./changes";
+import { fileMimeType, ImageChange, ImageSource } from "./changes";
 
 export const maxImageBytes = 32 * 1024 * 1024;
 export interface ImagePayload {
@@ -89,10 +89,10 @@ export async function readImageBytes(
 ): Promise<ImageBytes | null> {
   if (!source) return null;
   try {
-    const mime = mimeType(source.uri.fsPath);
+    const mime = fileMimeType(source.uri.fsPath);
     if (!mime)
       throw new Error(
-        "This version does not have a supported image extension.",
+        "This version does not have a supported file extension.",
       );
     const uri =
       source.ref === undefined

@@ -40,7 +40,12 @@ const vscode = {
       this.id = id;
     }
   },
-  ThemeIcon: class {},
+  ThemeIcon: class {
+    constructor(id, color) {
+      this.id = id;
+      this.color = color;
+    }
+  },
   FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
   Uri: {
     parse: (value) => uri(value, "metric"),
@@ -78,6 +83,8 @@ Module._load = function (name, ...rest) {
 const { ImageActions } = require("../out/actions");
 const { ImageChangesTree, ImageTreeItem } = require("../out/sidebar");
 const { ImageStatistics } = require("../out/statistics");
+const { ScopedChangesView } = require("../out/scoped-view");
+const { adjacentFile } = require("../out/tree-navigation");
 Module._load = originalLoad;
 const { collectChanges } = require("../out/changes");
 const { Status } = require("../out/git-api");
@@ -427,15 +434,133 @@ test("created and deleted images keep status colors and badges while metrics upd
     stats.dispose();
   });
   for (const [name, color, badge] of [
-    ["new.png", "addedResourceForeground", "+"],
-    ["deleted.png", "deletedResourceForeground", "−"],
+    ["new.png", "addedForeground", "+"],
+    ["deleted.png", "deletedForeground", "−"],
   ]) {
     const item = tree.leaves().find((item) => item.change.path === name);
     const decoration = tree.provideFileDecoration(item.resourceUri);
-    assert.equal(decoration.color.id, `gitDecoration.${color}`);
+    assert.equal(decoration.color.id, `universalDiffViewer.${color}`);
     assert.equal(decoration.badge, badge);
     assert.equal(decoration.propagate, false);
   }
+});
+
+test("Unstaged and Staged views refresh and label groups with multiple repositories", async (t) => {
+  const f = setup(t, { workingTreeChanges: [] });
+  const second = {
+    ...f.repo,
+    rootUri: uri("/other"),
+    state: {
+      ...f.repo.state,
+      indexChanges: [],
+      workingTreeChanges: [
+        { uri: uri("/other/x.png"), originalUri: uri("/other/x.png"), status: Status.MODIFIED },
+      ],
+      mergeChanges: [],
+    },
+  };
+  const api = {
+    get repositories() {
+      return [{ ...f.repo }, { ...second }];
+    },
+    onDidOpenRepository: new EventEmitter().event,
+    onDidCloseRepository: new EventEmitter().event,
+    toGitUri: (value) => uri(value.fsPath, "git"),
+  };
+  f.repo.state.workingTreeChanges.push(f.entry("a.png"));
+  const tree = new ImageChangesTree(api, f.ignores);
+  const unstaged = new ScopedChangesView(tree, ["conflict", "working", "failure"], "working");
+  const staged = new ScopedChangesView(tree, ["staged"], "staged");
+  t.after(() => {
+    unstaged.dispose();
+    staged.dispose();
+    tree.dispose();
+  });
+  assert.deepEqual(
+    unstaged.getChildren().map((node) => [node.label, node.description]),
+    [["Changes", "repo · 1"], ["Changes", "other · 1"]],
+  );
+  assert.deepEqual(staged.getChildren(), []);
+  const events = [];
+  staged.onDidChangeTreeData((event) => events.push(event));
+  f.repo.state.indexChanges.push(f.entry("b.png", Status.INDEX_MODIFIED));
+  await tree.refresh([]);
+  assert.ok(events.includes(undefined), "Staged view refreshes when a repository node changes");
+  assert.deepEqual(staged.getChildren().map((node) => node.description), ["repo · 1"]);
+  const file = staged.leaves()[0];
+  assert.equal(staged.getParent(staged.getParent(file)), undefined);
+});
+
+test("new, deleted and modified non-image files use contrast status colors", (t) => {
+  const f = setup(t, { workingTreeChanges: [] });
+  f.repo.state.workingTreeChanges.push(
+    f.entry("new.txt", Status.UNTRACKED),
+    f.entry("gone.pdf", Status.DELETED),
+    f.entry("edited.json", Status.MODIFIED),
+  );
+  const stats = new ImageStatistics();
+  const tree = new ImageChangesTree(f.api, f.ignores, stats);
+  t.after(() => {
+    tree.dispose();
+    stats.dispose();
+  });
+  for (const [name, color] of [
+    ["new.txt", "addedForeground"],
+    ["gone.pdf", "deletedForeground"],
+    ["edited.json", "modifiedForeground"],
+  ]) {
+    const item = tree.leaves().find((item) => item.change.path === name);
+    assert.equal(tree.provideFileDecoration(item.resourceUri).color.id, `universalDiffViewer.${color}`);
+    assert.equal(item.iconPath.color.id, `universalDiffViewer.${color}`);
+  }
+});
+
+test("Unstaged and Staged views split the shared model without group headers", (t) => {
+  const f = setup(t, {
+    workingTreeChanges: [],
+    indexChanges: [],
+    mergeChanges: [],
+  });
+  f.repo.state.workingTreeChanges.push(
+    f.entry("a/one.png", Status.MODIFIED),
+    f.entry("b/two.txt", Status.UNTRACKED),
+  );
+  f.repo.state.indexChanges.push(f.entry("a/three.pdf", Status.INDEX_ADDED));
+  f.repo.state.mergeChanges.push(f.entry("c/four.png", Status.BOTH_MODIFIED));
+  const unstaged = new ScopedChangesView(f.tree, ["conflict", "working", "failure"], "working");
+  const staged = new ScopedChangesView(f.tree, ["staged"], "staged");
+  t.after(() => {
+    unstaged.dispose();
+    staged.dispose();
+  });
+  const labels = (nodes) => nodes.map((node) => node.label);
+  assert.deepEqual(labels(unstaged.getChildren()), ["Merge Changes", "a", "b"]);
+  assert.deepEqual(labels(staged.getChildren()), ["a"]);
+  assert.deepEqual(
+    unstaged.leaves().map((node) => node.change.path).sort(),
+    ["a/one.png", "b/two.txt", "c/four.png"],
+  );
+  assert.deepEqual(staged.leaves().map((node) => node.change.path), ["a/three.pdf"]);
+  const stagedFile = staged.leaves()[0];
+  assert.equal(staged.getParent(stagedFile).label, "a");
+  assert.equal(staged.getParent(staged.getParent(stagedFile)), undefined);
+  const conflict = unstaged.leaves().find((node) => node.change.path === "c/four.png");
+  assert.equal(unstaged.getParent(unstaged.getParent(conflict)).label, "Merge Changes");
+  assert.equal(unstaged.owns(stagedFile), false);
+  assert.equal(staged.owns(conflict), false);
+  assert.equal(
+    adjacentFile(staged.getChildren(), undefined, "down").change.path,
+    "a/three.pdf",
+  );
+  const events = [];
+  staged.onDidChangeTreeData((event) => events.push(event));
+  unstaged.onDidChangeTreeData((event) => events.push(["unstaged", event]));
+  f.repo.state.indexChanges.push(f.entry("a/five.png", Status.INDEX_MODIFIED));
+  f.tree.refresh([]);
+  return new Promise((resolve) => setTimeout(resolve, 0)).then(() => {
+    assert.ok(events.length > 0);
+    assert.deepEqual(staged.leaves().map((node) => node.change.path).sort(), ["a/five.png", "a/three.pdf"]);
+  });
 });
 
 test("failure folders read no image bytes until a file is opened, then reuse its preview cache", async (t) => {

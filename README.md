@@ -16,7 +16,7 @@ _Side by side: inspect both versions at once. Screenshots in this guide use demo
 - **Different resolutions:** Logical scaling shows both screenshots at the same visual width.
 - **Files and folders:** search changes, stage or discard a selection, and hide noise with [`.image_ignore`](#hide-images-with-image_ignore).
 - **Keep your place:** synchronized pan and zoom, remembered settings, and background metrics that preserve the tree and its menus.
-- **Beyond images:** `.xlsx` and `.csv` changes open a cell-by-cell tabular diff, highlighting added, removed, and changed cells. `.txt` and `.xml` changes open in VS Code's native diff editor. `.xls` and `.pdf` changes open both revisions side by side. All of them support the same stage, unstage, discard, ignore, and hotkey actions as images.
+- **Beyond images:** `.xlsx` and `.csv` changes open a cell-by-cell tabular diff, highlighting added, removed, and changed cells. XLSX formulas show alongside cached values, and worksheet links keep multi-sheet workbooks navigable. `.pdf` changes get a page-by-page text preview when the PDF contains extractable text; scanned or unsupported PDFs fall back to side-by-side opening. `.xls`, `.txt`, `.xml`, and `.json` use the native side-by-side/editor fallback. All of them support the same sidebar stage, unstage, discard, ignore, and Enter actions as images.
 
 Universal Diff Viewer is a fork of [FF Git Image](https://github.com/asodevapp/ff_git_image) by ASO.dev, extended with its own UI and features. It is an independent extension for ordinary image assets in any Git repository. It has **no runtime npm dependencies** and does not require Flutter, Dart, ff_golden, ff_golden_presenter, ImageMagick, a browser server, or an external diff program.
 
@@ -28,26 +28,28 @@ Download a tagged build from [GitHub Releases](https://github.com/ashchur27/univ
 2. Open a Git repository in VS Code with the built-in Git extension enabled.
 3. Click **Universal Diff Viewer** in the Activity Bar (the vertical icon strip). The sidebar groups images by repository and staged/unstaged changes, then by folder; click an image to open its comparison.
 
-The sidebar header has **Find Changed Image** (search icon), **Open Image Changes**, and **Refresh** actions. Search by filename, full path, repository, or staged/unstaged state; selecting a result opens that comparison and reveals its tree entry. You can also run **Universal Diff Viewer: Find Changed Image** or **Universal Diff Viewer: Open Image Changes** from the Command Palette, or click the diff icon in the Source Control header.
+The sidebar header has **Find Changed File** (search icon), **Open File Changes**, and **Refresh** actions. Search by filename, full path, repository, or staged/unstaged state; selecting a result opens that comparison and reveals its tree entry. You can also run **Universal Diff Viewer: Find Changed File** or **Universal Diff Viewer: Open File Changes** from the Command Palette, or click the diff icon in the Source Control header.
 
 Single-child folder chains are compacted into one row. Branches such as `dark/en`, `dark/ru`, `light/en`, and `light/ru` keep repeated image names distinguishable. Folders show their changed-image count, and file tooltips show the full path, rename source, and comparison scope. Opening an image from the tree keeps focus in the sidebar for keyboard navigation; folder and file identities remain stable across Git refreshes.
 
-You can also right-click an image in Explorer or Source Control and choose **Universal Diff Viewer: Compare Image Changes**, or use its editor title action. The native sidebar is the only file list. The editor tab uses its full width for the comparison; its **Images** button reveals the sidebar if it is hidden.
+You can also right-click a supported file in Explorer or Source Control and choose **Universal Diff Viewer: Compare File Changes**, or use its editor title action. The native sidebar is the only file list. The editor tab uses its full width for the comparison; its **Files** button reveals the sidebar if it is hidden.
 
 ## Keyboard shortcuts
 
+The sidebar has two panels like Fork: **Unstaged** on top and **Staged** below. Each panel title has one button — **Stage All** (`+`) in Unstaged and **Unstage All** (`−`) in Staged.
+
 | Command                                       | Default key          | Works in                          |
 | ---------------------------------------------- | -------------------- | ---------------------------------- |
-| Stage the current image                        | `Ctrl+Alt+S`         | Comparison tab, sidebar selection   |
-| Unstage the current image                      | `Ctrl+Alt+U`         | Comparison tab, sidebar selection   |
-| Discard changes to the current image           | `Ctrl+Alt+D`         | Comparison tab, sidebar selection   |
-| Stage all changes                              | `Ctrl+Alt+Shift+S`   | Sidebar                             |
-| Unstage all changes                            | `Ctrl+Alt+Shift+U`   | Sidebar                             |
-| Discard all changes…                           | `Ctrl+Alt+Shift+D`   | Sidebar                             |
+| Stage the selection                            | `Enter` or `Ctrl+Alt+S` | Unstaged panel                  |
+| Unstage the selection                          | `Enter` or `Ctrl+Alt+U` | Staged panel                    |
+| Stage / unstage the current image              | `Ctrl+Alt+S` / `Ctrl+Alt+U` | Comparison tab              |
+| Stage all unstaged changes                     | `Ctrl+Alt+Shift+S`   | Sidebar                             |
+| Unstage all staged changes                     | `Ctrl+Alt+Shift+U`   | Sidebar                             |
+| Previous / next file (opens it)                | `↑` / `↓`            | Either panel                        |
 
-The sidebar selection shortcuts act on whatever is selected in the tree — a single file, a folder, or a whole repository group — the same as right-clicking it. The "all" shortcuts and their matching **Stage All Changes** / **Unstage All Changes** / **Discard All Changes…** view-title menu entries ignore the current selection and act on every tracked file across all repositories.
+Selection shortcuts act on whatever is selected in the focused panel — files or folders. **Discard** has no shortcut or button on purpose: right-click files or folders in the Unstaged panel and choose **Discard File Changes…**. Merge conflicts and failure artifacts are never staged by Enter or Stage All.
 
-Rebind any of these from **Preferences: Open Keyboard Shortcuts (JSON)** using the command IDs `universal_diff_viewer.stageActive`, `universal_diff_viewer.unstageActive`, `universal_diff_viewer.discardActive` (comparison tab), `universal_diff_viewer.stage`, `universal_diff_viewer.unstage`, `universal_diff_viewer.discard` (sidebar selection), or `universal_diff_viewer.stageAll`, `universal_diff_viewer.unstageAll`, `universal_diff_viewer.discardAll` (sidebar, everything).
+Rebind any of these from **Preferences: Open Keyboard Shortcuts (JSON)** using the command IDs `universal_diff_viewer.stageSelection`, `universal_diff_viewer.unstageSelection` (panels), `universal_diff_viewer.stageActive`, `universal_diff_viewer.unstageActive` (comparison tab), or `universal_diff_viewer.stageAll`, `universal_diff_viewer.unstageAll`.
 
 ## Review controls
 
@@ -137,9 +139,9 @@ A partially staged file has **two separate entries**. Renames use the old path f
 
 ### Accept or discard a folder
 
-Hover over an image, folder, or Changes / Staged Changes group to reveal quick actions, like VS Code's Source Control: **Discard** (undo arrow) and **Stage** (`+`) for unstaged changes, or **Unstage** (`−`) for staged changes. Folder and group actions apply to their matching image descendants. These buttons use the same selection rules, queue, revision checks, and discard confirmation as the context menu.
+Hover over a file or folder to reveal a quick action: **Stage** (`+`) in the Unstaged panel or **Unstage** (`−`) in the Staged panel. Folder actions apply to their matching descendants. The comparison tab has no action buttons; staging, ignoring, and discarding happen in the sidebar.
 
-Right-click an image, folder, or scope heading in the Universal Diff Viewer tree:
+Right-click a file or folder in the Universal Diff Viewer panels:
 
 - **Accept Image Changes (Stage)** in Changes stages the selected images, including additions and deletions.
 - **Unstage Image Changes** in Staged Changes removes those changes from the index and preserves working files.
@@ -151,7 +153,7 @@ Ctrl/Cmd-click or Shift-click to select several files and folders. Right-clickin
 
 Image contents are fingerprinted as the tree loads. Tree actions remain available during background calculations; if a selected image is still loading, the operation waits for its initial revision and reports progress. A changed path with unchanged Git status is still rejected. For an image already viewed, the last displayed revision must also match. If a file changes, review the refreshed image before trying again. Preview errors and preview size limits also prevent Git mutations through this UI; use Source Control for those files.
 
-The comparison toolbar offers **Stage / Unstage**, **Discard…**, **Ignore / Stop ignoring**, **Previous**, and **Next**. Left/right arrows navigate images when focus is outside controls and reveal the current image in the native tree. Navigation remains available while actions are running, so another image can be reviewed and queued. Only the image with an outstanding toolbar action has its action buttons temporarily disabled.
+The comparison toolbar offers **Previous** and **Next**; file actions live in the sidebar panels. Left/right arrows navigate images when focus is outside controls and reveal the current image in the native tree. `Ctrl+Alt+S` / `Ctrl+Alt+U` stage or unstage the open image; navigation remains available while that action runs, so another image can be reviewed and queued.
 
 Commands refresh Git status only in the selected repositories. Initial reads needed by an action take priority over queued background images; background revision checks and pixel-statistics requests pause during the operation and resume afterward. The tree and comparison refresh after each action, with background fingerprint work outside the mutation queue. Committing and conflict resolution remain in VS Code's Source Control. Discard uses VS Code's filesystem API; if the filesystem cannot move a new image to Trash, the error is reported without silently retrying permanent deletion.
 

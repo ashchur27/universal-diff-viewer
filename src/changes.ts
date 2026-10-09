@@ -19,11 +19,16 @@ export const textTypes: Record<string, string> = {
   ".txt": "text/plain",
   ".csv": "text/csv",
   ".xml": "application/xml",
+  ".json": "application/json",
 };
 export const documentTypes: Record<string, string> = {
   ".pdf": "application/pdf",
   ".xls": "application/vnd.ms-excel",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+export const fileMimeType = (file: string): string | undefined => {
+  const extension = path.extname(file).toLowerCase();
+  return imageTypes[extension] ?? textTypes[extension] ?? documentTypes[extension];
 };
 export type FileKind = "image" | "text" | "document";
 export function fileKind(file: string): FileKind | undefined {
@@ -32,6 +37,9 @@ export function fileKind(file: string): FileKind | undefined {
   if (textTypes[extension]) return "text";
   if (documentTypes[extension]) return "document";
   return undefined;
+}
+export function isTemporaryOfficeFile(file: string): boolean {
+  return /(?:^|[\\/])~\$[^\\/]+\.(?:xls|xlsx)$/i.test(file);
 }
 export type Scope = "staged" | "working" | "conflict" | "failure";
 export interface ImageSource {
@@ -81,6 +89,8 @@ export function collectChanges(repository: Repository): ImageChange[] {
       ].includes(change.status);
       const uri = change.renameUri ?? change.uri;
       const original = renamed ? change.originalUri : uri;
+      if (isTemporaryOfficeFile(uri.fsPath) || isTemporaryOfficeFile(original.fsPath))
+        continue;
       const kind = fileKind(uri.fsPath) ?? fileKind(original.fsPath);
       if (!kind) continue;
       const added = [
@@ -137,8 +147,9 @@ export function collectChanges(repository: Repository): ImageChange[] {
       });
     }
   }
+  const compare = new Intl.Collator().compare;
   return [...result.values()].sort(
-    (a, b) => a.path.localeCompare(b.path) || a.scope.localeCompare(b.scope),
+    (a, b) => compare(a.path, b.path) || compare(a.scope, b.scope),
   );
 }
 
