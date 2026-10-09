@@ -17,6 +17,8 @@ export async function captureReadme(page, root) {
   await page.waitForFunction(() =>
     document.querySelector("#metrics").textContent.includes("pixels changed"),
   );
+  await page.evaluate(() => window.__readmeSnapshot("main"));
+  await page.waitForFunction(() => document.querySelector("#clean-failures").hidden);
   const capture = async (name) => {
     await page.click("#fit");
     await page.locator("#fit").blur();
@@ -41,7 +43,7 @@ export async function captureReadme(page, root) {
   await capture("pixel-diff");
   await page.selectOption("#mode", "side");
   await page.locator("#logical-scaling").check();
-  await page.evaluate(() => window.__selectImage("resized"));
+  await page.evaluate(() => window.__readmeSnapshot("resized"));
   await page.waitForFunction(
     () =>
       document.querySelector("#left-size").textContent.includes("1440") &&

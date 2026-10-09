@@ -1,31 +1,39 @@
 # Changelog
 
-## Unreleased
-
-- Add page-by-page PDF text preview with changed/unchanged page states and a safe side-by-side fallback for scanned or unsupported PDFs.
-- Show XLSX formulas alongside cached values and add worksheet navigation links to tabular diffs.
-- Add semicolon/tab/BOM-aware CSV parsing, repository-scoped bulk actions, and a refreshed Universal Diff Viewer webview appearance.
-- Read PDF/XLSX/CSV Git versions as raw blobs so `textconv` filters (e.g. Git for Windows `astextplain`) no longer break document diffs.
-- Extract PDF text through ToUnicode CMaps, Type0/Identity-H fonts, glyph widths, form XObjects and object streams, laid out into lines by position.
-- Show PDF changes as an aligned line-by-line table with word highlighting; unchanged pages are collapsed.
-- Show a file status badge (New file / Deleted file / Modified / Renamed / Conflict / Failure) in the image viewer, PDF and XLSX/CSV previews, and the status in text diff titles.
-- Use dedicated high-contrast status colors (`universalDiffViewer.addedForeground` / `deletedForeground` / `modifiedForeground`) for file names and icons in the tree; they can be overridden in `workbench.colorCustomizations`.
-- Split the sidebar into Fork-style **Unstaged** and **Staged** panels with Stage All / Unstage All title buttons; Enter (or Ctrl+Alt+S / Ctrl+Alt+U) stages or unstages the selection, and Discard is available only from the right-click menu.
-- Add an adjustable Blink interval (100–2000 ms, default 650 ms) that is remembered with the other comparison settings.
-- Remove the Stage / Discard / Ignore buttons (and `Ctrl+Alt+D`) from the comparison tab; these actions live in the sidebar panels. `Ctrl+Alt+S` / `Ctrl+Alt+U` still stage or unstage the open image.
-- Fix Unstaged/Staged panels not refreshing with multiple repositories; group rows show the repository name.
-- Harden PDF parsing against decompression bombs, recursive form XObjects, and malformed object tables; cache decoded streams; PDFs without extractable text now fall back to side-by-side instead of showing "Unchanged".
-- Diff tabs are per change (staged and unstaged versions of a file no longer overwrite each other); slow document loads no longer steal focus after you move on.
-- Git reads time out after 30 s and report Git LFS pointers clearly.
-- Faster tree building (~40% for 6,000 changes) and tabular cell diffs.
-
 ## 1.0.0
 
-- Track text (`.txt`, `.csv`, `.xml`) and document (`.pdf`, `.xls`, `.xlsx`) changes alongside images: stage, unstage, discard, and ignore them from the tree and hotkeys. `.txt` and `.xml` open in VS Code's native diff editor.
-- Add a cell-by-cell tabular diff for `.xlsx` and `.csv` changes, with no runtime dependencies (built-in zip/XML parsing for `.xlsx`, a built-in CSV parser): highlights added, removed, and changed cells. `.xls` and `.pdf` still open both revisions side by side.
-- Add Stage, Unstage, and Discard keyboard shortcuts (`Ctrl+Alt+S`/`U`/`D`), rebindable via `keybindings.json`, usable from the comparison tab or the sidebar selection.
-- Add Stage All, Unstage All, and Discard All commands and shortcuts (`Ctrl+Alt+Shift+S`/`U`/`D`) that act on every tracked file across all repositories, plus matching entries in the sidebar's view-title menu.
-- Replace the extension icon and Activity Bar glyph with a new design.
+First release of **Universal Diff Viewer**, a fork of [ff_git_image](https://github.com/asodevapp/ff_git_image) extended beyond images.
+
+### More file types
+
+- Track text (`.txt`, `.csv`, `.xml`, `.json`) and document (`.pdf`, `.xls`, `.xlsx`) changes alongside images; stage, unstage, discard, and ignore them from the sidebar. `.txt`, `.xml`, and `.json` open in VS Code's native diff editor.
+- Cell-by-cell tabular diff for `.xlsx` and `.csv` with no runtime dependencies: highlights added, removed, and changed cells, shows XLSX formulas alongside cached values, links between worksheets, and detects comma/semicolon/tab delimiters and BOMs.
+- PDF text diff: extracts text through ToUnicode CMaps, Type0/Identity-H fonts, glyph widths, form XObjects, and object streams, lays it out into lines by position, and shows an aligned line-by-line table with word highlighting; unchanged pages are collapsed. Scanned or unsupported PDFs fall back to side-by-side.
+- Git versions of documents are read as raw blobs, so `textconv` filters (e.g. Git for Windows `astextplain`) do not break diffs. Reads time out after 30 s and report Git LFS pointers clearly.
+- File status badge (New file / Deleted file / Modified / Renamed / Conflict / Failure) in the image viewer and document previews; status in text diff titles. Added and deleted PDFs show a single column.
+
+### Fork-style sidebar
+
+- **Unstaged** and **Staged** panels with Stage All / Unstage All title buttons. `Enter` (or `Ctrl+Alt+S` / `Ctrl+Alt+U`) stages or unstages the selection; `↑`/`↓` move between files and open them. Discard is available only from the right-click menu.
+- High-contrast status colors for file names and icons (`universalDiffViewer.addedForeground` / `deletedForeground` / `modifiedForeground`), overridable in `workbench.colorCustomizations`.
+- Microsoft Office lock files (`~$*.xlsx`) are hidden.
+
+### Comparison tab
+
+- Actions moved to the sidebar: the tab keeps Previous / Next and Open file; `Ctrl+Alt+S` / `Ctrl+Alt+U` still stage or unstage the open image.
+- Adjustable Blink interval (100–2000 ms, default 650 ms), remembered with the other settings.
+- Refreshed Universal Diff Viewer branding, tooltips, and accessible labels; new extension icon and Activity Bar glyph.
+
+### Reliability and performance
+
+- Hardened PDF and XLSX parsing against decompression bombs, recursive form XObjects, malformed object tables, and oversized archives.
+- Diff tabs are per change, and slow document loads no longer steal focus after you move on.
+- Panels refresh correctly with multiple repositories; group rows show the repository name.
+- Faster tree building (~40% for 6,000 changes) and tabular cell diffs.
+
+---
+
+The entries below are from the upstream ff_git_image project.
 
 ## 1.1.2
 

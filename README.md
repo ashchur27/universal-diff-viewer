@@ -6,9 +6,9 @@
 
 Review screenshots, icons, illustrations, and other image assets in any Git repository. Pick a file in the native sidebar, compare its versions, and stage or discard changes without leaving the editor.
 
-[Get started](#install-and-open) · [Comparison modes](#review-controls) · [Different image sizes](#compare-captures-with-different-dimensions) · [File actions](#accept-or-discard-a-folder) · [Changelog](CHANGELOG.md)
+[Get started](#install-and-open) · [Comparison modes](#review-controls) · [Documents and spreadsheets](#documents-and-spreadsheets) · [Different image sizes](#compare-captures-with-different-dimensions) · [File actions](#accept-or-discard-a-folder) · [Changelog](CHANGELOG.md)
 
-[![Side by side comparison with synchronized zoom, image actions, and the Color threshold slider](docs/images/side-by-side.png)](docs/images/side-by-side.png)
+[![Side by side comparison with a Modified status badge, synchronized zoom, and the Color threshold slider](docs/images/side-by-side.png)](docs/images/side-by-side.png)
 
 _Side by side: inspect both versions at once. Screenshots in this guide use demo images in the actual comparison interface._
 
@@ -26,7 +26,11 @@ Download a tagged build from [GitHub Releases](https://github.com/ashchur27/univ
 
 1. Install the `.vsix` using **Extensions → … → Install from VSIX…**.
 2. Open a Git repository in VS Code with the built-in Git extension enabled.
-3. Click **Universal Diff Viewer** in the Activity Bar (the vertical icon strip). The sidebar groups images by repository and staged/unstaged changes, then by folder; click an image to open its comparison.
+3. Click **Universal Diff Viewer** in the Activity Bar (the vertical icon strip). The sidebar has an **Unstaged** panel on top and a **Staged** panel below, each grouped by folder; click a file to open its comparison.
+
+<a href="docs/images/sidebar.png"><img src="docs/images/sidebar.png" alt="Unstaged and Staged panels with color-coded new, deleted, and modified files, file-type icons, and changed-pixel percentages" width="300"></a>
+
+_New files are green, deleted files red, and modified files orange. Images show their changed-pixel percentage; folders show the total. The `+` / `−` buttons in each panel title stage or unstage everything._
 
 The sidebar header has **Find Changed File** (search icon), **Open File Changes**, and **Refresh** actions. Search by filename, full path, repository, or staged/unstaged state; selecting a result opens that comparison and reveals its tree entry. You can also run **Universal Diff Viewer: Find Changed File** or **Universal Diff Viewer: Open File Changes** from the Command Palette, or click the diff icon in the Source Control header.
 
@@ -100,6 +104,21 @@ Choose **View → Side by side** and check **Logical scaling** above the images,
 
 This setting is intended for comparing content and layout across different screenshot resolutions. **Fit** fits the whole pair; **100%** displays both at the smaller image's native width. Each pane shows its original dimensions and actual image scale. Pixel highlight, color threshold, change bounds, and raw pixel percentages are hidden while logical scaling is active because they describe the original pixel grid. Uncheck the box to restore them. Other views continue using original pixels; returning to Side by side restores the checkbox's selection. Saved settings from the former Layout view automatically migrate to Side by side with Logical scaling checked. Images are not stretched, cropped, or modified; no automatic semantic matching is performed.
 
+## Documents and spreadsheets
+
+Non-image files open in their own diff tab with the same New file / Deleted file / Modified badge. Git versions are read as raw blobs, so `textconv` filters such as Git for Windows' `astextplain` do not interfere.
+
+[![PDF diff of an invoice: changed payment terms, delivery fee, and total highlighted word by word](docs/images/pdf-diff.png)](docs/images/pdf-diff.png)
+
+_PDF: text is extracted per page (including Type0/Identity-H fonts) and compared line by line; changed words are highlighted and unchanged pages are collapsed. Added and deleted PDFs show a single column. Scanned PDFs without a text layer open side by side instead._
+
+| XLSX                                                                                                                                                       | CSV                                                                                                                                       |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Workbook diff showing changed formulas with cached values, a new row, and a second worksheet](docs/images/xlsx-diff.png)](docs/images/xlsx-diff.png) | [![CSV diff with changed prices and stock, and a replaced row](docs/images/csv-diff.png)](docs/images/csv-diff.png) |
+| Every worksheet, with formulas next to cached values and links between sheets.                                                                             | Comma, semicolon, and tab delimiters and BOMs are detected automatically.                                                                 |
+
+`.txt`, `.xml`, and `.json` open in VS Code's native diff editor; `.xls` opens both versions side by side.
+
 ## Git semantics
 
 ### Hide images with .image_ignore
@@ -143,9 +162,9 @@ Hover over a file or folder to reveal a quick action: **Stage** (`+`) in the Uns
 
 Right-click a file or folder in the Universal Diff Viewer panels:
 
-- **Accept Image Changes (Stage)** in Changes stages the selected images, including additions and deletions.
-- **Unstage Image Changes** in Staged Changes removes those changes from the index and preserves working files.
-- **Discard Image Changes…** in Changes shows a compact confirmation with the file count and up to three path examples. **View File List** opens every selected path in a scrollable editor without approving the action; run it again after reviewing. Confirming restores tracked images to the index version and moves new images to Trash. A partially staged file retains its staged changes. To discard staged changes too, first unstage them and then discard the resulting Changes entry.
+- **Stage File Changes** in the Unstaged panel stages the selected files, including additions and deletions.
+- **Unstage File Changes** in the Staged panel removes those changes from the index and preserves working files.
+- **Discard File Changes…** in the Unstaged panel shows a compact confirmation with the file count and up to three path examples. **View File List** opens every selected path in a scrollable editor without approving the action; run it again after reviewing. Confirming restores tracked files to the index version and moves new files to Trash. A partially staged file retains its staged changes. To discard staged changes too, first unstage them and then discard the resulting Unstaged entry.
 
 Folder and group actions include only their visible image descendants, respecting `.image_ignore`. Other files, sibling folders, and hidden images are untouched. A rename includes both its old and new names when staging or unstaging. Filenames with brackets, spaces, and Unicode are addressed literally. Changes made while the discard dialog is open cancel the operation so they can be reviewed again. Symbolic links and directories replacing image files are not modified.
 
@@ -194,7 +213,7 @@ Supported extensions: **PNG, JPG/JPEG, WebP, GIF, BMP, SVG, ICO, AVIF**, includi
 - Unsupported, corrupt, oversized, and unreadable versions display errors. Pixel statistics are withheld when either required version fails to load.
 - Pixel counts describe decoded browser RGBA values, including alpha. They are a visual review aid, not a perceptual test threshold or a golden-test verdict.
 
-Requires VS Code 1.85+ and its built-in Git integration with Git available. VS Code's Git extension manages Git processes; Universal Diff Viewer itself does not start external programs, HTTP servers, or shell commands. Remote extension hosts are supported by the architecture but have not yet been separately verified; virtual workspaces are not supported.
+Requires VS Code 1.85+ and its built-in Git integration with Git available. VS Code's Git extension manages Git status and index operations. To diff PDF, XLSX, and CSV versions without `textconv` conversion, Universal Diff Viewer runs `git cat-file blob` directly (no shell, 30-second timeout) using the Git executable configured in VS Code. It starts no HTTP servers or shell commands. Remote extension hosts are supported by the architecture but have not yet been separately verified; virtual workspaces are not supported.
 
 ## Development
 
@@ -229,6 +248,14 @@ node test/ui.mjs --screenshots
 ```
 
 This runs the browser checks and saves the gallery to `docs/images/`. It does not capture your workspace or start any tools in the installed extension.
+
+The sidebar, PDF, XLSX, and CSV screenshots come from a real, disposable VS Code window opened on a generated demo repository:
+
+```sh
+VSCODE_EXECUTABLE="/path/to/Code" node test/readme-vscode.mjs
+```
+
+It uses a temporary profile and repository, then closes the window and deletes them.
 
 ## Releases and publishing
 

@@ -236,6 +236,8 @@ try {
       window.__snapshot = (selected, changes = items, filter = "all") =>
         window.__emit({ type: "snapshot", changes, selected, filter, failureCount: changes.filter(item => item.scope === "failure").length });
       window.__failureSnapshot = () => window.__snapshot("failure", items.filter(item => item.id === "failure"), "failures");
+      window.__readmeSnapshot = (selected) =>
+        window.__snapshot(selected, items.filter((item) => item.scope !== "failure"));
       window.__selectImage = (id) => window.__snapshot(id);
       window.__revisionSnapshot = () =>
         new Promise((resolve) => {
