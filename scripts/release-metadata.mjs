@@ -36,7 +36,7 @@ export function releaseMetadata(manifest, lock, changelog, tag) {
     version,
     "First changelog release must match package.json",
   );
-  const changes = lines.join("\n").trim();
+  const changes = lines.join("\n").split(/^---\s*$/m)[0].trim();
   assert(changes.length > 0, "Release notes must not be empty");
   const filename = `${manifest.name}-${version}.vsix`;
   return {
