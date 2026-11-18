@@ -711,7 +711,7 @@ export async function activate(context: vscode.ExtensionContext) {
       void viewFor(item.change?.scope).reveal(item, { select: false, focus: true, expand: false });
   };
   const tabularPanels = new Map<string, vscode.WebviewPanel>();
-  const maxTabularBytes = 20 * 1024 * 1024;
+  const maxTabularBytes = 50 * 1024 * 1024;
   const readTabularBytes = async (root: string, source?: ImageSource) => {
     if (!source) return undefined;
     if (source.ref !== undefined)
@@ -724,7 +724,7 @@ export async function activate(context: vscode.ExtensionContext) {
       );
     const stat = await vscode.workspace.fs.stat(source.uri);
     if (stat.size > maxTabularBytes)
-      throw new Error("File exceeds the 20 MiB preview limit");
+      throw new Error("File exceeds the 50 MiB preview limit");
     return vscode.workspace.fs.readFile(source.uri);
   };
   const showTabularDiff = (change: ImageChange, html: string) => {
@@ -740,7 +740,7 @@ export async function activate(context: vscode.ExtensionContext) {
       "universal_diff_viewer.tabularDiff",
       title,
       vscode.ViewColumn.Active,
-      { enableScripts: false },
+      { enableScripts: true },
     );
     panel.webview.html = html;
     tabularPanels.set(key, panel);

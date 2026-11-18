@@ -74,6 +74,19 @@ test("renderTabularDiffHtml renders a CSV diff as a single sheet", () => {
   assert.match(html, /class="changed">.*2.*3/s);
 });
 
+test("renderTabularDiffHtml pages rows behind a load-more button instead of truncating", () => {
+  const grid = (rows, suffix) =>
+    Array.from({ length: rows }, (_, r) => Array.from({ length: 61 }, (_, c) => `${r}:${c}${suffix}`).join(",")).join("\n");
+  const full = renderTabularDiffHtml("wide.csv", [diffCsv("wide.csv", grid(429, ""), grid(429, "x"))]);
+  assert.doesNotMatch(full, /Showing the first|data-more="|<tr hidden>/);
+  assert.match(full, /<th>BI<\/th>/);
+  const html = renderTabularDiffHtml("long.csv", [diffCsv("long.csv", grid(1200, ""), grid(1200, "x"))]);
+  assert.doesNotMatch(html, /Showing the first/);
+  assert.equal(html.match(/<tr hidden>/g).length, 700);
+  assert.match(html, /data-more="500"/);
+  assert.match(html, /700 more rows hidden/);
+});
+
 test("renderTabularDiffHtml shows the file status badge", () => {
   const added = renderTabularDiffHtml("new.csv", [diffCsv("new.csv", undefined, "a\n")], "Added");
   assert.match(added, /<h1><span class="badge ins">New file<\/span>new\.csv<\/h1>/);

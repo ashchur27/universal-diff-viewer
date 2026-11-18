@@ -1,8 +1,8 @@
 import { constants, inflateSync } from "node:zlib";
 import { statusBadge, statusBadgeCss } from "./tabular";
 
-const maxPdfBytes = 20 * 1024 * 1024;
-const maxPages = 500;
+const maxPdfBytes = 50 * 1024 * 1024;
+const maxPages = 2000;
 const maxCMapEntries = 200_000;
 const maxFormDepth = 5;
 const maxDiffCells = 4_000_000;
@@ -713,7 +713,7 @@ class PdfReader {
 
 export function readPdf(bytes: Uint8Array): PdfDocument {
   const buffer = Buffer.from(bytes);
-  if (buffer.length > maxPdfBytes) throw new Error("PDF exceeds the 20 MiB preview limit");
+  if (buffer.length > maxPdfBytes) throw new Error("PDF exceeds the 50 MiB preview limit");
   if (!buffer.subarray(0, 1024).toString("latin1").includes("%PDF-"))
     throw new Error("Not a PDF document");
   const source = buffer.toString("latin1");

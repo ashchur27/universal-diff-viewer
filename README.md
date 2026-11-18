@@ -208,7 +208,7 @@ Supported extensions: **PNG, JPG/JPEG, WebP, GIF, BMP, SVG, ICO, AVIF**, includi
 
 - Animated images are frozen to a decoded frame; animation timelines are not compared.
 - SVG is rendered at its intrinsic size, as an image, with external resources disabled by the browser's image context. This is a raster comparison, not an SVG source diff.
-- Previews are limited to **32 MiB per file**, **16 million pixels in the combined comparison area**, and **16,384 pixels per dimension**.
+- Previews are limited to **32 MiB per file**, **64 million pixels in the combined comparison area**, and **32,767 pixels per dimension**.
 - Git LFS pointers display an explanation; the extension does not fetch LFS content. A readable working copy can still be previewed. Discard LFS images through Source Control so its LFS filters can restore the working file; Universal Diff Viewer never replaces it with the raw pointer.
 - Unsupported, corrupt, oversized, and unreadable versions display errors. Pixel statistics are withheld when either required version fails to load.
 - Pixel counts describe decoded browser RGBA values, including alpha. They are a visual review aid, not a perceptual test threshold or a golden-test verdict.

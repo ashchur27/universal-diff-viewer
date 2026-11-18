@@ -3,7 +3,7 @@
   "displayName": "Universal Diff Viewer",
   "icon": "logo.png",
   "description": "Review image, text, spreadsheet and document changes in a VS Code tab.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "ashchur",
   "license": "MIT",
   "engines": {
@@ -47,17 +47,32 @@
       {
         "id": "universalDiffViewer.addedForeground",
         "description": "File name color for new files in Universal Diff Viewer.",
-        "defaults": { "light": "#107C10", "dark": "#4EC94E", "highContrast": "#89D185", "highContrastLight": "#0B5A0B" }
+        "defaults": {
+          "light": "#107C10",
+          "dark": "#4EC94E",
+          "highContrast": "#89D185",
+          "highContrastLight": "#0B5A0B"
+        }
       },
       {
         "id": "universalDiffViewer.deletedForeground",
         "description": "File name color for deleted files in Universal Diff Viewer.",
-        "defaults": { "light": "#C50F1F", "dark": "#F14C4C", "highContrast": "#F48771", "highContrastLight": "#A1000F" }
+        "defaults": {
+          "light": "#C50F1F",
+          "dark": "#F14C4C",
+          "highContrast": "#F48771",
+          "highContrastLight": "#A1000F"
+        }
       },
       {
         "id": "universalDiffViewer.modifiedForeground",
         "description": "File name color for modified files in Universal Diff Viewer.",
-        "defaults": { "light": "#C75000", "dark": "#FF9F40", "highContrast": "#FFB86C", "highContrastLight": "#9A3D00" }
+        "defaults": {
+          "light": "#C75000",
+          "dark": "#FF9F40",
+          "highContrast": "#FFB86C",
+          "highContrastLight": "#9A3D00"
+        }
       }
     ],
     "commands": [
@@ -421,25 +436,33 @@
       {
         "command": "universal_diff_viewer.focusPrevious",
         "key": "up",
-        "args": { "view": "unstaged" },
+        "args": {
+          "view": "unstaged"
+        },
         "when": "focusedView == 'universal_diff_viewer.changes' && !inputFocus"
       },
       {
         "command": "universal_diff_viewer.focusNext",
         "key": "down",
-        "args": { "view": "unstaged" },
+        "args": {
+          "view": "unstaged"
+        },
         "when": "focusedView == 'universal_diff_viewer.changes' && !inputFocus"
       },
       {
         "command": "universal_diff_viewer.focusPrevious",
         "key": "up",
-        "args": { "view": "staged" },
+        "args": {
+          "view": "staged"
+        },
         "when": "focusedView == 'universal_diff_viewer.staged' && !inputFocus"
       },
       {
         "command": "universal_diff_viewer.focusNext",
         "key": "down",
-        "args": { "view": "staged" },
+        "args": {
+          "view": "staged"
+        },
         "when": "focusedView == 'universal_diff_viewer.staged' && !inputFocus"
       }
     ]

@@ -32,7 +32,7 @@ export class ImageStatistics implements vscode.Disposable {
       !Number.isSafeInteger(result.total) ||
       result.changed < 0 ||
       result.total < result.changed ||
-      result.total > 16_000_000
+      result.total > 64_000_000
     )
       return;
     const previous = this.values.get(revision);

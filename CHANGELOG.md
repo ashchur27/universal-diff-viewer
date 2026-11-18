@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0
+
+### Fixes
+
+- Tabular (`.xlsx`, `.csv`) diffs no longer cut off at 200 rows × 40 columns. The first 500 rows are shown, with **Show 500 more rows** and **Show all rows** buttons for the rest, and up to 1000 columns. The "Showing the first…" notice now appears only for extremely large sheets (over 1,000,000 cells).
+- Long screenshots no longer fail with "Preview unavailable": image previews now support up to 64 million pixels in the combined comparison area and 32,767 pixels per dimension (was 16 million and 16,384). Errors now include the actual image size.
+
+### Higher limits
+
+- `.pdf`, `.xlsx`, and `.csv` previews accept files up to 50 MiB (was 20 MiB).
+- PDF previews support up to 2000 pages (was 500).
+- XLSX worksheets may contain up to 32 MB of XML and 128 MiB uncompressed (was 8 MB and 64 MiB).
+
 ## 1.0.0
 
 First release of **Universal Diff Viewer**, a fork of [ff_git_image](https://github.com/asodevapp/ff_git_image) extended beyond images.

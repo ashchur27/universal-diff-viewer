@@ -1,5 +1,10 @@
 import { comparePixels } from "./diff.mjs";
 
+// Long full-page screenshots are common; 32,767 is the Chromium canvas dimension limit.
+const maxPixels = 64_000_000;
+const maxDimension = 32_767;
+const maxPixelsLabel = `${maxPixels / 1_000_000} million`;
+
 const vscode = acquireVsCodeApi();
 const $ = (id) => document.getElementById(id);
 const saved = vscode.getState() ?? {};
@@ -188,12 +193,12 @@ async function decode(payload) {
   if (!image.naturalWidth || !image.naturalHeight)
     throw new Error("Image has no intrinsic dimensions.");
   if (
-    image.naturalWidth * image.naturalHeight > 16_000_000 ||
-    image.naturalWidth > 16384 ||
-    image.naturalHeight > 16384
+    image.naturalWidth * image.naturalHeight > maxPixels ||
+    image.naturalWidth > maxDimension ||
+    image.naturalHeight > maxDimension
   ) {
     throw new Error(
-      "Preview supports up to 16 million pixels and 16,384 pixels per dimension.",
+      `Image is ${image.naturalWidth} × ${image.naturalHeight}. Preview supports up to ${maxPixelsLabel} pixels and ${maxDimension.toLocaleString("en-US")} pixels per dimension.`,
     );
   }
   // Freeze a decoded frame so animated formats do not change during comparison.
@@ -273,11 +278,11 @@ window.addEventListener("message", async (event) => {
     );
     width = Math.max(before?.width ?? 0, after?.width ?? 0);
     height = Math.max(before?.height ?? 0, after?.height ?? 0);
-    if (!width || !height || width * height > 16_000_000) {
+    if (!width || !height || width * height > maxPixels) {
       empty(
         "Preview unavailable",
         errors.join("\n") ||
-          "The combined image area exceeds 16 million pixels.",
+          `The combined image area exceeds ${maxPixelsLabel} pixels.`,
       );
       $("metrics").textContent = "Comparison unavailable";
       return;
@@ -882,7 +887,7 @@ async function calculateStatistics(data) {
       second = await decode(data.after);
     const width = Math.max(first?.width ?? 0, second?.width ?? 0);
     const height = Math.max(first?.height ?? 0, second?.height ?? 0);
-    if (!width || !height || width * height > 16_000_000)
+    if (!width || !height || width * height > maxPixels)
       throw new Error("Comparison unavailable or too large");
     const pixels = (image) => {
       const canvas = document.createElement("canvas");

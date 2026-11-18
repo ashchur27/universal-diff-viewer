@@ -1,9 +1,9 @@
 import { inflateRawSync } from "node:zlib";
 import { diffCells, SheetDiff } from "./tabular";
 
-const maxEntryXmlLength = 8_000_000;
+const maxEntryXmlLength = 32_000_000;
 const maxZipEntries = 4096;
-const maxUncompressedBytes = 64 * 1024 * 1024;
+const maxUncompressedBytes = 128 * 1024 * 1024;
 
 function hasRange(buffer: Buffer, offset: number, length: number): boolean {
   return offset >= 0 && length >= 0 && offset <= buffer.length - length;
@@ -72,7 +72,7 @@ function readZipEntries(buffer: Buffer): Map<string, Buffer> {
       throw new Error(`Unsupported .xlsx compression method ${compressionMethod}`);
     uncompressedBytes += data.length;
     if (uncompressedBytes > maxUncompressedBytes)
-      throw new Error(".xlsx package exceeds the 64 MiB decompression limit");
+      throw new Error(".xlsx package exceeds the 128 MiB decompression limit");
     entries.set(name, data);
   }
   return entries;
